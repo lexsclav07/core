@@ -18,6 +18,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+import wave
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -39,7 +40,8 @@ def microphones() -> list[str]:
     names = []
     for node in nodes:
         props = (node.get("info") or {}).get("props") or {}
-        if props.get("media.class") == "Audio/Source":
+        # Virtual sources count too (e.g. EasyEffects noise cancelling).
+        if str(props.get("media.class", "")).startswith("Audio/Source"):
             names.append(str(props.get("node.description") or props.get("node.name")))
     return names
 
@@ -80,11 +82,27 @@ def _model(size: str) -> Any:
     return WhisperModel(size, device="cpu", compute_type="int8")
 
 
+def load_wav(path: Path) -> Any:
+    """Read our 16 kHz mono 16-bit WAV as the float array whisper wants.
+
+    We decode it ourselves instead of letting faster-whisper use PyAV: its
+    PyAV call breaks on PyAV 19 (an argument was removed), and our recordings
+    are always the same simple format anyway.
+    """
+    import numpy as np
+
+    with wave.open(str(path), "rb") as w:
+        if (w.getframerate(), w.getnchannels(), w.getsampwidth()) != (SAMPLE_RATE, 1, 2):
+            raise MicError("unexpected audio format")
+        frames = w.readframes(w.getnframes())
+    return np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+
+
 async def transcribe(path: Path, size: str = "small") -> str:
     """Speech to text. Runs in a thread so the TUI stays responsive."""
 
     def run() -> str:
-        segments, _info = _model(size).transcribe(str(path), vad_filter=True)
+        segments, _info = _model(size).transcribe(load_wav(path), vad_filter=True)
         return " ".join(s.text.strip() for s in segments).strip()
 
     return await asyncio.to_thread(run)

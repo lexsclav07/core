@@ -121,6 +121,7 @@ def test_images_are_scaled_for_the_gpu(tmp_path: Path) -> None:
 PW_DUMP = [
     {"info": {"props": {"media.class": "Audio/Sink", "node.description": "Speakers"}}},
     {"info": {"props": {"media.class": "Audio/Source", "node.description": "USB Mic"}}},
+    {"info": {"props": {"media.class": "Audio/Source/Virtual", "node.description": "Denoised"}}},
     {"type": "PipeWire:Interface:Client", "info": {}},
 ]
 
@@ -130,7 +131,7 @@ def test_microphones_are_found_in_pw_dump(monkeypatch: pytest.MonkeyPatch) -> No
         return subprocess.CompletedProcess(a, 0, stdout=json.dumps(PW_DUMP))
 
     monkeypatch.setattr(subprocess, "run", run)
-    assert mic.microphones() == ["USB Mic"]
+    assert mic.microphones() == ["USB Mic", "Denoised"]
 
 
 async def test_recording_without_a_mic_fails_clearly(monkeypatch: pytest.MonkeyPatch) -> None:
