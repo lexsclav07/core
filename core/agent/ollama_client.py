@@ -65,6 +65,7 @@ class OllamaClient:
         # No overall timeout: a long answer can stream for minutes. We still
         # fail fast if the server isn't there at all.
         timeout = httpx.Timeout(None, connect=5.0)
+        self.base_url = base_url
         self._http = httpx.AsyncClient(base_url=base_url, timeout=timeout, transport=transport)
 
     async def aclose(self) -> None:

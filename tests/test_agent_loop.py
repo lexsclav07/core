@@ -44,6 +44,9 @@ class FakeUI:
     async def command_view(self, command: str, assessment: Assessment) -> FakeView:
         return FakeView(self.statuses)
 
+    def sense(self, name: str, active: bool) -> None:
+        pass
+
 
 def call(command: str) -> dict[str, Any]:
     args = {"command": command, "explanation": "test", "undo": "nothing to undo"}

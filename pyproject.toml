@@ -5,7 +5,10 @@ description = "CORE: a local AI assistant for Fedora that lives in the terminal"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "dbus-fast>=5.2.0",
+    "faster-whisper>=1.2.1",
     "httpx>=0.28",
+    "pillow>=12.3.0",
     "textual>=3.0",
     "tree-sitter>=0.26.0",
     "tree-sitter-bash>=0.25.1",
@@ -37,7 +40,8 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "ASYNC"]
 # SIM905 wants word lists as one-per-line literals; "a b c".split() reads better here.
-ignore = ["SIM905"]
+# ASYNC240 flags tiny local file ops (unlink, stat) in async code; they take microseconds.
+ignore = ["SIM905", "ASYNC240"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -52,3 +56,8 @@ testpaths = ["tests"]
 "tests/*" = ["ASYNC"]
 # The task table reads better with one long regex per line.
 "evals/tasks.py" = ["E501"]
+
+[[tool.mypy.overrides]]
+# faster-whisper ships no type hints.
+module = ["faster_whisper"]
+ignore_missing_imports = true

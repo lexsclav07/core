@@ -30,12 +30,15 @@ from textual.widgets import Collapsible, Input, LoadingIndicator, Markdown, Stat
 from textual.widgets.markdown import MarkdownStream
 from textual.worker import Worker, WorkerState
 
+from core.agent import audit
 from core.agent.loop import Conversation
 from core.agent.ollama_client import OllamaClient, OllamaError
 from core.agent.risk import Assessment
 from core.config import Config, load_config, resolve_accent
 from core.logo import load_logo
+from core.tools.mic import MicError, Recorder, transcribe
 from core.tools.pty_runner import RunningCommand
+from core.tools.senses import look_at_screen, look_at_webcam
 from core.tools.shell import run_command
 from core.widgets import ApprovalModal, CommandBlock, PasswordModal
 
@@ -109,7 +112,9 @@ class StatusBar(Static):
         except OllamaError:
             model_part = f"{model} [red]● Ollama down[/]"
 
-        parts = [model_part, await vram_usage(), "senses: off", session_kind()]
+        senses = app.active_senses
+        sense_part = f"[b red]● {' + '.join(sorted(senses))}[/]" if senses else "senses: off"
+        parts = [model_part, await vram_usage(), sense_part, session_kind()]
         self.update(" │ ".join(parts))
 
 
@@ -136,8 +141,10 @@ def session_kind() -> str:
     return "remote" if os.environ.get("SSH_CONNECTION") else "local"
 
 
-PROMPT_IDLE = "Ask CORE…  (Ctrl+C stops a reply, Ctrl+O expands output, Ctrl+Q quits)"
+PROMPT_IDLE = "Ask CORE…  (Ctrl+T talk, Ctrl+C stop, Ctrl+O expand output, Ctrl+Q quit)"
 PROMPT_RUNNING = "A command is running: type here to answer it, Ctrl+C stops it"
+PROMPT_RECORDING = "● Recording… press Ctrl+T or Enter to stop"
+PROMPT_TRANSCRIBING = "Transcribing…"
 
 
 class ReplyBlock:
@@ -208,6 +215,7 @@ class ChatScreen(Screen[None]):
         Binding("ctrl+c", "cancel", "Stop", priority=True),
         Binding("escape", "cancel", "Stop", show=False),
         Binding("ctrl+o", "toggle_output", "Expand output"),
+        Binding("ctrl+t", "talk", "Talk", priority=True),
     ]
 
     def compose(self) -> ComposeResult:
@@ -220,12 +228,16 @@ class ChatScreen(Screen[None]):
         self.reply_worker: Worker[None] | None = None
         self.reply: ReplyBlock | None = None
         self.last_block: CommandBlock | None = None
+        self.recorder: Recorder | None = None
 
     @property
     def running(self) -> RunningCommand | None:
         return self.last_block.running if self.last_block else None
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
+        if self.recorder is not None:
+            await self.action_talk()  # Enter also stops recording
+            return
         if self.running is not None:
             # Answer the command's prompt (e.g. "[y/N]"); the model doesn't see this.
             self.running.send_line(event.value)
@@ -279,6 +291,49 @@ class ChatScreen(Screen[None]):
         elif self.reply_worker and self.reply_worker.state == WorkerState.RUNNING:
             self.reply_worker.cancel()
 
+    async def action_talk(self) -> None:
+        """Push-to-talk: first press starts recording, second press stops it."""
+        prompt = self.query_one("#prompt", Input)
+        if self.recorder is None:
+            recorder = Recorder()
+            try:
+                await recorder.start()
+            except MicError as e:
+                recorder.discard()
+                self.notify(f"Can't record: {e}.", severity="warning")
+                return
+            self.recorder = recorder
+            self.sense("mic", True)
+            prompt.placeholder = PROMPT_RECORDING
+            if session_kind() == "remote":
+                self.notify("Recording from the PC's microphone, not your laptop's.")
+            return
+        recorder, self.recorder = self.recorder, None
+        self.sense("mic", False)
+        self._transcribe(recorder)
+
+    @work(exclusive=True, group="mic")
+    async def _transcribe(self, recorder: Recorder) -> None:
+        app = self.app
+        assert isinstance(app, CoreApp)
+        prompt = self.query_one("#prompt", Input)
+        prompt.placeholder = PROMPT_TRANSCRIBING
+        try:
+            text = await transcribe(await recorder.stop(), app.config.model.whisper)
+        except MicError as e:
+            self.notify(f"Didn't catch that: {e}.", severity="warning")
+            text = ""
+        finally:
+            recorder.discard()  # the audio is never kept
+            prompt.placeholder = PROMPT_IDLE
+            entry = audit.AuditEntry("🎤 push-to-talk recording", "CONFIRM",
+                                     "Lex pressed the talk key", "lex", session_kind())  # fmt: skip
+            audit.record(entry)
+        # Put it in the box so Lex can check it before sending.
+        prompt.value = (prompt.value + " " + text).strip()
+        prompt.cursor_position = len(prompt.value)
+        prompt.focus()
+
     def action_toggle_output(self) -> None:
         if self.last_block is not None:
             self.last_block.toggle()
@@ -309,6 +364,15 @@ class ChatScreen(Screen[None]):
         block = self.last_block = CommandBlock(command, assessment)
         await self.query_one("#messages", VerticalScroll).mount(block)
         return block
+
+    def sense(self, name: str, active: bool) -> None:
+        app = self.app
+        assert isinstance(app, CoreApp)
+        if active:
+            app.active_senses.add(name)
+        else:
+            app.active_senses.discard(name)
+        self.query_one(StatusBar).refresh_status()
 
     async def _wait_for(self, modal: ModalScreen[Any]) -> Any:
         """Show a dialog and wait for its answer; close it if the reply is cancelled."""
@@ -364,15 +428,17 @@ class CoreApp(App[None]):
     def __init__(self, config: Config) -> None:
         super().__init__()
         self.config = config
+        self.active_senses: set[str] = set()  # shown in red in the status bar
         self.client = OllamaClient(config.ollama.url)
         self.conversation = Conversation(
             self.client,
             config.model.main,
             num_ctx=config.model.num_ctx,
             think=config.model.think,
-            tools=[run_command],
+            tools=[run_command, look_at_screen, look_at_webcam],
             cwd=str(Path.home()),
             session=session_kind(),
+            vision_model=config.model.vision,
         )
 
     def on_mount(self) -> None:

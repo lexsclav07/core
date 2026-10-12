@@ -17,6 +17,10 @@ DEFAULT_TOML = """\
 
 [model]
 main = "qwen3:8b"
+# Used for "look at my screen / webcam". Swapped in and out of the GPU on demand.
+vision = "qwen3-vl:8b"
+# Speech to text for push-to-talk (Ctrl+T), on the CPU: tiny, base, small, medium.
+whisper = "small"
 # Context window in tokens. 16k fits on the 8 GB 3060 with Ollama's q8_0 KV cache.
 num_ctx = 16384
 # qwen3 can "think" before answering. Off by default: in testing (evals/) it was
@@ -50,6 +54,8 @@ FALLBACK_ACCENT = GNOME_ACCENTS["blue"]
 @dataclass(frozen=True)
 class ModelConfig:
     main: str = "qwen3:8b"
+    vision: str = "qwen3-vl:8b"
+    whisper: str = "small"
     num_ctx: int = 16384
     think: bool = False
 

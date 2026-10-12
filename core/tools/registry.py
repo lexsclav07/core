@@ -52,6 +52,8 @@ class AgentUI(Protocol):
     ) -> bool: ...
     async def ask_password(self) -> str | None: ...
     async def command_view(self, command: str, assessment: Assessment) -> CommandView: ...
+    def sense(self, name: str, active: bool) -> None:
+        """Show or hide a sense (screen/webcam/mic) in the status bar."""
 
 
 @dataclass
@@ -61,6 +63,8 @@ class ToolContext:
     session: str  # "local" or "remote"
     # Set once anything untrusted has entered this turn (rule 6 in CLAUDE.md).
     tainted: bool = False
+    vision_model: str = "qwen3-vl:8b"
+    ollama_url: str = "http://127.0.0.1:11434"
 
 
 ToolFunc = Callable[..., Awaitable[ToolResult]]

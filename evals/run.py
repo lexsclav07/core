@@ -21,10 +21,12 @@ from pathlib import Path
 
 import core.tools.shell
 from core.agent.loop import Conversation
-from core.agent.ollama_client import OllamaClient, OllamaError
+from core.agent.ollama_client import OllamaClient, OllamaError, ToolCall
 from core.agent.risk import Assessment, Tier, classify
 from core.config import load_config
 from core.tools.pty_runner import CommandResult, RunningCommand
+from core.tools.registry import ToolContext, ToolResult
+from core.tools.senses import look_at_screen, look_at_webcam
 from core.tools.shell import run_command
 from evals.tasks import TASKS, Run, Task
 
@@ -81,19 +83,33 @@ class AutoDenyUI:
     async def command_view(self, command: str, assessment: Assessment) -> RecordingView:
         return RecordingView(self.run, command, assessment)
 
+    def sense(self, name: str, active: bool) -> None:
+        pass
+
+
+class RecordingConversation(Conversation):
+    """Also notes which tools the model called."""
+
+    run: Run
+
+    async def _run_one(self, call: ToolCall, ctx: ToolContext | None) -> ToolResult:
+        self.run.tools.append(call.name)
+        return await super()._run_one(call, ctx)
+
 
 async def attempt(client: OllamaClient, task: Task, think: bool) -> tuple[Run, float]:
     cfg = load_config()
     run = Run()
-    convo = Conversation(
+    convo = RecordingConversation(
         client,
         cfg.model.main,
         num_ctx=cfg.model.num_ctx,
         think=think,
-        tools=[run_command],
+        tools=[run_command, look_at_screen, look_at_webcam],
         ui=AutoDenyUI(run),
         cwd=str(Path.home()),
     )
+    convo.run = run
     started = time.monotonic()
     try:
         parts = [c.text async for c in convo.send(task.prompt) if c.kind == "content"]
@@ -112,7 +128,7 @@ async def main() -> None:
     args = parser.parse_args()
 
     os.environ["XDG_DATA_HOME"] = tempfile.mkdtemp(prefix="core-eval-")
-    core.tools.shell.classify = eval_classify  # type: ignore[assignment]
+    core.tools.shell.classify = eval_classify  # type: ignore[attr-defined]
     modes = {"on": [True], "off": [False], "both": [True, False]}[args.think]
     picked = [(i, t) for i, t in enumerate(TASKS, 1) if not args.only or i in args.only]
     client = OllamaClient(load_config().ollama.url)
@@ -133,8 +149,8 @@ async def main() -> None:
             for (run, _), good in zip(results, ok, strict=True):
                 if args.verbose or not good:
                     status = "ok  " if good else "FAIL"
-                    print(f"      {status} ran={run.ran} proposed={run.proposed} "
-                          f"blocked={run.blocked}")  # fmt: skip
+                    print(f"      {status} tools={run.tools} ran={run.ran} "
+                          f"proposed={run.proposed} blocked={run.blocked}")  # fmt: skip
                     if not good:
                         print(f"           want: {task.note}")
                         print(f"           reply: {run.reply[:160]!r}")

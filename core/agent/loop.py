@@ -58,6 +58,7 @@ class Conversation:
         ui: AgentUI | None = None,
         cwd: str = ".",
         session: str = "local",
+        vision_model: str = "qwen3-vl:8b",
     ) -> None:
         self.client = client
         self.model = model
@@ -67,6 +68,7 @@ class Conversation:
         self.ui = ui
         self.cwd = cwd
         self.session = session
+        self.vision_model = vision_model
         self.history: list[Message] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     async def send(self, text: str) -> AsyncIterator[Chunk]:
@@ -78,7 +80,12 @@ class Conversation:
         """
         start = len(self.history)
         self.history.append({"role": "user", "content": text})
-        ctx = ToolContext(self.ui, self.cwd, self.session) if self.ui else None
+        ctx = None
+        if self.ui:
+            ctx = ToolContext(
+                self.ui, self.cwd, self.session,
+                vision_model=self.vision_model, ollama_url=str(self.client.base_url),
+            )  # fmt: skip
         nudged = bool(ASKED_HOW.search(text)) or not self.tools
         try:
             for _ in range(MAX_ROUNDS):
