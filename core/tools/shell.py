@@ -2,7 +2,8 @@
 
 Every call goes through the same gate, in code, not just in the prompt:
 
-    classify (risk.py) → taint check → refuse / ask Lex / run → audit log
+    classify (risk.py) → taint check → refuse / sanity-check (preflight.py) /
+    ask Lex / run → audit log
 
 The model has to explain each command and say how to undo it. The
 confirmation dialog shows that explanation next to the *raw* command, so a
@@ -15,6 +16,7 @@ import asyncio
 
 from core.agent import audit
 from core.agent.risk import Assessment, Tier, classify, default_context
+from core.tools import preflight
 from core.tools.pty_runner import run_in_pty, summarise
 from core.tools.registry import ToolContext, ToolResult, tool
 
@@ -76,6 +78,14 @@ async def run_command(
             f"BLOCKED by CORE's safety rules: {assessment.reason}. This can't be run, even if "
             "Lex asks. Don't try another way to do the same thing; explain the risk to Lex."
         )
+
+    # Don't ask Lex to approve something that's sure to fail (made-up settings
+    # keys or app IDs); send the model back to look it up instead.
+    problem = await asyncio.to_thread(preflight.problems, command)
+    if problem is not None:
+        view.finish("invalid")
+        log("invalid", note=problem)
+        return ToolResult(problem)
 
     approval: audit.Approval = "auto"
     if assessment.tier == Tier.CONFIRM:

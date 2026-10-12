@@ -15,7 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-Approval = Literal["auto", "lex", "denied", "blocked"]
+# invalid = preflight.py found it can't work, so Lex was never asked.
+Approval = Literal["auto", "lex", "denied", "blocked", "invalid"]
 
 
 @dataclass(frozen=True)

@@ -62,7 +62,7 @@ class RecordingView:
     def finish(self, status: str, result: CommandResult | None = None) -> None:
         if status == "blocked":
             self.run.blocked.append(self.command)
-        elif status == "denied":
+        elif status in ("denied", "invalid"):
             self.run.proposed.append(self.command)
         else:
             self.run.ran.append(self.command)

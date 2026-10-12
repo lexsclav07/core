@@ -9,10 +9,11 @@ One turn (one message from Lex) goes like this:
 
 It stops after MAX_ROUNDS so a confused model can't loop forever.
 
-Small models sometimes answer "run these commands: ..." instead of calling the
-tool. When a reply hands Lex shell commands and runs nothing, the loop takes
-it back off the screen ("retract") and tells the model to do it itself. That
-happens once per turn, and not when Lex asked *how* to do something.
+Small models sometimes answer "run these commands: ..." or "let's first check
+the setting…" and then stop, instead of calling the tool. When a reply does
+that and runs nothing, the loop takes it back off the screen ("retract") and
+tells the model to do it itself. That happens once per turn, and not when Lex
+asked *how* to do something.
 """
 
 from __future__ import annotations
@@ -33,6 +34,13 @@ HANDED_COMMANDS = re.compile(
     r"(?:sudo|gsettings|dconf|dnf|flatpak|systemctl|rpm|nmcli|git|gnome-extensions|"
     r"mkdir|cp|mv|rm|echo|cat|ls|nvidia-smi|curl|wget|chmod|chown|ln|tee|sed)\b"
 )
+# "Let's first check the current setting…" and then nothing ran.
+ANNOUNCED_ACTION = re.compile(
+    r"\b(let'?s|let me(?! know)|i'?ll|i will|i'?m going to|i am going to"
+    r"|first,? (we|i) (need|will|should))"
+    r"\b[^.?!\n]{0,60}\b(check|run|look|use|set|change|install|search|find|execute)\b",
+    re.IGNORECASE,
+)
 # Lex asking for instructions, not action: then handing over commands is right.
 ASKED_HOW = re.compile(
     r"\b(how (do|can|would|should) i|what('s| is) the command|show me how|explain|"
@@ -40,9 +48,9 @@ ASKED_HOW = re.compile(
     re.IGNORECASE,
 )
 NUDGE = (
-    "(Automatic message from CORE, not from Lex.) You wrote commands for Lex to "
-    "run instead of running them. Lex wants you to do it. Use run_command now: "
-    "check the current state first if useful, then make the change step by step."
+    "(Automatic message from CORE, not from Lex.) You described what to do but "
+    "didn't do it. Lex wants you to do it. Call the tool now: check the current "
+    "state first if useful, then make the change step by step."
 )
 
 
@@ -87,19 +95,21 @@ class Conversation:
                 vision_model=self.vision_model, ollama_url=str(self.client.base_url),
             )  # fmt: skip
         nudged = bool(ASKED_HOW.search(text)) or not self.tools
+        acted = False  # has any tool run this turn?
         try:
             for _ in range(MAX_ROUNDS):
                 calls: list[ToolCall] = []
                 async for chunk in self._stream_reply(calls):
                     yield chunk
                 if not calls:
-                    if nudged or not self._handed_commands():
+                    if nudged or not self._handed_commands(acted):
                         return
                     nudged = True
                     self.history.append({"role": "user", "content": NUDGE})
                     yield Chunk("retract")
                     continue
                 await self._run_calls(calls, ctx)
+                acted = True
                 yield Chunk("break")
             yield Chunk("content", f"\n\n*(Stopped after {MAX_ROUNDS} rounds of commands.)*")
         finally:
@@ -131,9 +141,18 @@ class Conversation:
                     ]
                 self.history.append(msg)
 
-    def _handed_commands(self) -> bool:
+    def _handed_commands(self, acted: bool) -> bool:
+        """Did the last reply hand over commands, or announce an action and stop?
+
+        "I'll check…" only counts before anything has run: after commands,
+        the final summary often says things like "I'll keep it at 900".
+        """
         last = self.history[-1]
-        return last["role"] == "assistant" and bool(HANDED_COMMANDS.search(last["content"]))
+        if last["role"] != "assistant":
+            return False
+        text = last["content"]
+        announced = not acted and ANNOUNCED_ACTION.search(text)
+        return bool(HANDED_COMMANDS.search(text) or announced)
 
     async def _run_calls(self, calls: list[ToolCall], ctx: ToolContext | None) -> None:
         done = 0

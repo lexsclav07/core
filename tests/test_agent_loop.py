@@ -175,3 +175,31 @@ async def test_nudges_only_once_per_turn() -> None:
     convo = Conversation(client, "m", num_ctx=1024, think=False, tools=[run_command], ui=FakeUI())
     [c async for c in convo.send("stop my screen turning off")]
     assert len(requests) == 2
+
+
+async def test_announced_but_not_done_is_nudged() -> None:
+    client, requests = scripted_ollama(
+        {"content": "Let's first check the current setting to see if it's already on."},
+        {"content": "", "tool_calls": [call("echo checked")]},
+        {"content": "Done."},
+    )
+    convo = Conversation(client, "m", num_ctx=1024, think=False, tools=[run_command], ui=FakeUI())
+    kinds = [c.kind async for c in convo.send("make the clock show seconds")]
+    assert "retract" in kinds and len(requests) == 3
+
+
+async def test_plain_answers_are_not_nudged() -> None:
+    client, requests = scripted_ollama({"content": "Your GPU is an RTX 3060 with 8 GB."})
+    convo = Conversation(client, "m", num_ctx=1024, think=False, tools=[run_command], ui=FakeUI())
+    kinds = [c.kind async for c in convo.send("what gpu do I have")]
+    assert "retract" not in kinds and len(requests) == 1
+
+
+async def test_final_summary_after_commands_is_not_nudged() -> None:
+    client, requests = scripted_ollama(
+        {"content": "", "tool_calls": [call("echo hi")]},
+        {"content": "Done. Let me know if you'd like me to change anything else."},
+    )
+    convo = Conversation(client, "m", num_ctx=1024, think=False, tools=[run_command], ui=FakeUI())
+    kinds = [c.kind async for c in convo.send("say hi")]
+    assert "retract" not in kinds and len(requests) == 2

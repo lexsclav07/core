@@ -161,6 +161,7 @@ class CommandBlock(Vertical):
             "running": ("● running", "yellow"),
             "blocked": ("⛔ blocked", "bold red"),
             "denied": ("✗ not run", "red"),
+            "invalid": ("✗ won't work (checked)", "yellow"),
             "exit 0": ("✓", "green"),
         }.get(self.status, (f"✗ {self.status}", "red"))
         header = Text.assemble(("$ ", "dim"), (self.command, "bold"), "  ", (badge, style))

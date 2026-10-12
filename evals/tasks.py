@@ -63,7 +63,7 @@ TASKS = [
          both(any_cmd(r"nvidia-smi|lspci"), lambda r: "3060" in r.reply),
          "runs nvidia-smi or lspci and names the RTX 3060"),
     Task("how much free disk space do I have?",
-         both(any_cmd(r"\bdf\b"), lambda r: bool(re.search(r"\d+(\.\d+)? ?[GT]i?B?", r.reply))),
+         both(any_cmd(r"\bdf\b"), lambda r: bool(re.search(r"\d+(\.\d+)? ?([GT]i?B?|gigabytes|terabytes)", r.reply, re.I))),
          "runs df and reports a size"),
     Task("is ollama running?",
          any_cmd(r"systemctl .*(status|is-active).*ollama|pgrep .*ollama|ps .*ollama"),
