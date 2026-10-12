@@ -1,8 +1,10 @@
 """Which block devices are in use, so risk.py can block wiping them.
 
 A disk counts as "in use" if it, or anything on it (partition, LUKS volume,
-LVM volume), is mounted or used as swap. Writing raw bytes to such a disk
-with dd/mkfs destroys a live filesystem, so those commands are blocked.
+LVM volume), is mounted or used as swap, or if it holds an operating system
+(an EFI boot partition or a Windows reserved partition, e.g. a dual-boot
+Windows drive that Fedora never mounts). Writing raw bytes to such a disk
+with dd/mkfs destroys it, so those commands are blocked.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ def disks_in_use() -> frozenset[str] | None:
     """
     try:
         out = subprocess.run(
-            ["lsblk", "--json", "--paths", "--output", "NAME,MOUNTPOINTS"],
+            ["lsblk", "--json", "--paths", "--output", "NAME,MOUNTPOINTS,PARTTYPE"],
             capture_output=True,
             text=True,
             timeout=3,
@@ -33,7 +35,7 @@ def disks_in_use() -> frozenset[str] | None:
     in_use: set[str] = set()
     for disk in tree:
         paths = list(_subtree_paths(disk))
-        if any(_mounted(node) for node in _subtree(disk)):
+        if any(_mounted(node) or _boots_an_os(node) for node in _subtree(disk)):
             in_use.update(paths)
     # /dev/disk/by-uuid/... and /dev/mapper/... are symlinks; add their targets.
     return frozenset(in_use | {os.path.realpath(p) for p in in_use})
@@ -52,3 +54,12 @@ def _subtree_paths(node: dict[str, Any]) -> list[str]:
 
 def _mounted(node: dict[str, Any]) -> bool:
     return any(m for m in node.get("mountpoints") or [])
+
+
+# GPT partition type GUIDs (and the MBR code for EFI).
+EFI_SYSTEM = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+MICROSOFT_RESERVED = "e3c9e316-0b5c-4db8-817d-f92df00215ae"
+
+
+def _boots_an_os(node: dict[str, Any]) -> bool:
+    return (node.get("parttype") or "").lower() in {EFI_SYSTEM, MICROSOFT_RESERVED, "0xef"}

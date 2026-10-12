@@ -171,7 +171,7 @@ def disk_target(path: str, ctx: Context) -> Assessment | None:
     if ctx.disks_in_use is None:
         return blocked(f"{path} is a disk and CORE can't check whether it's in use")
     if path in ctx.disks_in_use or real in ctx.disks_in_use:
-        return blocked(f"{path} holds a mounted filesystem; writing to it destroys the system")
+        return blocked(f"{path} is in use or holds an operating system; writing to it destroys it")
     return confirm(f"writes raw data to the disk {path}, erasing what's on it")
 
 
