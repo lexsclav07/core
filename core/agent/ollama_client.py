@@ -32,11 +32,13 @@ class ToolCall:
 class Chunk:
     """One streamed piece of a reply.
 
-    "break" isn't from Ollama: the agent loop sends it after running tools, so
-    the TUI starts a fresh text block below the command output.
+    "break" and "retract" aren't from Ollama; the agent loop sends them.
+    break: tools ran, so the TUI starts a fresh text block below their output.
+    retract: the reply so far handed Lex commands instead of running them, so
+    the TUI removes it while the model tries again.
     """
 
-    kind: Literal["thinking", "content", "tool_call", "break"]
+    kind: Literal["thinking", "content", "tool_call", "break", "retract"]
     text: str = ""
     call: ToolCall | None = None
 

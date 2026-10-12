@@ -142,3 +142,33 @@ async def test_loop_stops_after_max_rounds() -> None:
     _, requests, text = await turn(FakeUI(), *forever)
     assert len(requests) == 10
     assert "Stopped after 10 rounds" in text
+
+
+HANDED = "Run these:\n\n```bash\ngsettings set org.gnome.desktop.session idle-delay 0\n```"
+
+
+async def test_handed_commands_are_retracted_and_redone() -> None:
+    client, requests = scripted_ollama(
+        {"content": HANDED},
+        {"content": "", "tool_calls": [call("echo done")]},
+        {"content": "Done."},
+    )
+    convo = Conversation(client, "m", num_ctx=1024, think=False, tools=[run_command], ui=FakeUI())
+    kinds = [c.kind async for c in convo.send("stop my screen turning off")]
+    assert "retract" in kinds
+    assert "Automatic message from CORE" in requests[1]["messages"][-1]["content"]
+    assert len(requests) == 3
+
+
+async def test_no_nudge_when_lex_asks_how() -> None:
+    client, requests = scripted_ollama({"content": HANDED})
+    convo = Conversation(client, "m", num_ctx=1024, think=False, tools=[run_command], ui=FakeUI())
+    kinds = [c.kind async for c in convo.send("how do I stop my screen turning off?")]
+    assert "retract" not in kinds and len(requests) == 1
+
+
+async def test_nudges_only_once_per_turn() -> None:
+    client, requests = scripted_ollama({"content": HANDED}, {"content": HANDED})
+    convo = Conversation(client, "m", num_ctx=1024, think=False, tools=[run_command], ui=FakeUI())
+    [c async for c in convo.send("stop my screen turning off")]
+    assert len(requests) == 2

@@ -8,10 +8,16 @@ One turn (one message from Lex) goes like this:
                           add the results to history, go back to 1
 
 It stops after MAX_ROUNDS so a confused model can't loop forever.
+
+Small models sometimes answer "run these commands: ..." instead of calling the
+tool. When a reply hands Lex shell commands and runs nothing, the loop takes
+it back off the screen ("retract") and tells the model to do it itself. That
+happens once per turn, and not when Lex asked *how* to do something.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
@@ -20,6 +26,24 @@ from core.agent.prompts import SYSTEM_PROMPT
 from core.tools.registry import AgentUI, Tool, ToolContext, ToolResult
 
 MAX_ROUNDS = 10
+
+# A fenced code block whose first line starts like a shell command.
+HANDED_COMMANDS = re.compile(
+    r"```(?:bash|sh|shell|console|zsh)?\s*\n\s*\$?\s*"
+    r"(?:sudo|gsettings|dconf|dnf|flatpak|systemctl|rpm|nmcli|git|gnome-extensions|"
+    r"mkdir|cp|mv|rm|echo|cat|ls|nvidia-smi|curl|wget|chmod|chown|ln|tee|sed)\b"
+)
+# Lex asking for instructions, not action: then handing over commands is right.
+ASKED_HOW = re.compile(
+    r"\b(how (do|can|would|should) i|what('s| is) the command|show me how|explain|"
+    r"teach me|what command|don'?t run|without running)\b",
+    re.IGNORECASE,
+)
+NUDGE = (
+    "(Automatic message from CORE, not from Lex.) You wrote commands for Lex to "
+    "run instead of running them. Lex wants you to do it. Use run_command now: "
+    "check the current state first if useful, then make the change step by step."
+)
 
 
 class Conversation:
@@ -55,13 +79,19 @@ class Conversation:
         start = len(self.history)
         self.history.append({"role": "user", "content": text})
         ctx = ToolContext(self.ui, self.cwd, self.session) if self.ui else None
+        nudged = bool(ASKED_HOW.search(text)) or not self.tools
         try:
             for _ in range(MAX_ROUNDS):
                 calls: list[ToolCall] = []
                 async for chunk in self._stream_reply(calls):
                     yield chunk
                 if not calls:
-                    return
+                    if nudged or not self._handed_commands():
+                        return
+                    nudged = True
+                    self.history.append({"role": "user", "content": NUDGE})
+                    yield Chunk("retract")
+                    continue
                 await self._run_calls(calls, ctx)
                 yield Chunk("break")
             yield Chunk("content", f"\n\n*(Stopped after {MAX_ROUNDS} rounds of commands.)*")
@@ -93,6 +123,10 @@ class Conversation:
                         {"function": {"name": c.name, "arguments": c.arguments}} for c in calls
                     ]
                 self.history.append(msg)
+
+    def _handed_commands(self) -> bool:
+        last = self.history[-1]
+        return last["role"] == "assistant" and bool(HANDED_COMMANDS.search(last["content"]))
 
     async def _run_calls(self, calls: list[ToolCall], ctx: ToolContext | None) -> None:
         done = 0

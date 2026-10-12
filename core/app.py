@@ -150,6 +150,7 @@ class ReplyBlock:
     def __init__(self, messages: VerticalScroll) -> None:
         self.messages = messages
         self.pending: LoadingIndicator | None = None
+        self.answer: Markdown | None = None
         self.answer_stream: MarkdownStream | None = None
         self.thinking_box: Collapsible | None = None
         self.thinking_stream: MarkdownStream | None = None
@@ -180,10 +181,17 @@ class ReplyBlock:
     async def content(self, text: str) -> None:
         self.done_thinking()
         if self.answer_stream is None:
-            answer = Markdown(classes="assistant")
-            await self.messages.mount(answer)
-            self.answer_stream = Markdown.get_stream(answer)
+            self.answer = Markdown(classes="assistant")
+            await self.messages.mount(self.answer)
+            self.answer_stream = Markdown.get_stream(self.answer)
         await self.answer_stream.write(text)
+
+    async def retract(self) -> None:
+        """Take this reply off the screen (the model is about to redo it)."""
+        await self.close()
+        for widget in (self.answer, self.thinking_box):
+            if widget is not None and widget.is_mounted:
+                await widget.remove()
 
     async def close(self) -> None:
         self.drop_pending()
@@ -244,8 +252,8 @@ class ChatScreen(Screen[None]):
         await reply.start()
         try:
             async for chunk in app.conversation.send(text):
-                if chunk.kind == "break":
-                    await reply.close()
+                if chunk.kind in ("break", "retract"):
+                    await (reply.close() if chunk.kind == "break" else reply.retract())
                     reply = self.reply = ReplyBlock(messages)
                     await reply.start()
                     continue
