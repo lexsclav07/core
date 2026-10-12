@@ -1,0 +1,20 @@
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+dist/
+
+# Never commit real config or secrets (secrets belong in GNOME Keyring anyway)
+config.toml
+*.secret
+client_secret*.json
+token*.json
+
+# Captures from the senses
+*.png
+*.mp4
+*.webm
+!core/logo/*.png
