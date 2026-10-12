@@ -50,3 +50,5 @@ testpaths = ["tests"]
 [tool.ruff.lint.per-file-ignores]
 # Blocking file reads are fine inside async tests.
 "tests/*" = ["ASYNC"]
+# The task table reads better with one long regex per line.
+"evals/tasks.py" = ["E501"]

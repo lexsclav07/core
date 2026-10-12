@@ -52,3 +52,16 @@ uv run ruff check . && uv run ruff format --check .
 uv run mypy --strict core/agent
 uv run pytest
 ```
+
+## Evals (how reliable is CORE?)
+
+`evals/` runs real requests against the real model and checks what CORE did.
+Read-only commands really run; anything that would change the PC is auto-denied
+and only recorded, so an eval run never changes anything.
+
+```sh
+uv run python -m evals.run                # all tasks, 3 tries each
+uv run python -m evals.run --think both   # compare thinking on vs off
+```
+
+Add a task to `evals/tasks.py` whenever CORE gets something wrong in real use.

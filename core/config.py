@@ -19,8 +19,9 @@ DEFAULT_TOML = """\
 main = "qwen3:8b"
 # Context window in tokens. 16k fits on the 8 GB 3060 with Ollama's q8_0 KV cache.
 num_ctx = 16384
-# qwen3 can "think" before answering. The TUI shows thinking in a collapsible block.
-think = true
+# qwen3 can "think" before answering. Off by default: in testing (evals/) it was
+# 10x slower and less reliable with thinking on (68% vs 88% of tasks done right).
+think = false
 
 [ollama]
 url = "http://127.0.0.1:11434"
@@ -50,7 +51,7 @@ FALLBACK_ACCENT = GNOME_ACCENTS["blue"]
 class ModelConfig:
     main: str = "qwen3:8b"
     num_ctx: int = 16384
-    think: bool = True
+    think: bool = False
 
 
 @dataclass(frozen=True)
