@@ -10,7 +10,7 @@ The model runs entirely on the local GPU. The only things that use the network a
 
 ## Hardware and platform
 
-- Fedora (current release), GNOME on Wayland, NVIDIA RTX 3060 (12 GB VRAM).
+- Fedora (current release), GNOME on Wayland, NVIDIA RTX 3060 (8 GB VRAM). About 0.7 GB of that is taken by the desktop.
 - NVIDIA driver: RPM Fusion `akmod-nvidia` plus `xorg-x11-drv-nvidia-cuda`. If Secure Boot is on, the kernel module needs MOK enrollment, and CORE should walk Lex through that.
 - Default terminal: Ptyxis (Fedora's default). Don't hardcode it; read it from config.
 - Remote client: Windows 11 laptop with Windows Terminal, the built-in OpenSSH client, and Tailscale.
@@ -22,7 +22,7 @@ The model runs entirely on the local GPU. The only things that use the network a
 | Language | Python 3.12+, managed with `uv` |
 | TUI | Textual |
 | LLM runtime | Ollama (system service, CUDA) |
-| Main model | Strongest instruct model with native tool calling that fits in 12 GB at Q4_K_M, roughly 14B (for example `qwen3:14b`). Check current tags on ollama.com. Configurable. |
+| Main model | Strongest instruct model with native tool calling that fits in 8 GB at Q4_K_M, roughly 8B (for example `qwen3:8b`). A 14B model does not fit. Check current tags on ollama.com. Configurable. |
 | Vision model | About 7B vision-language model (for example `qwen2.5vl:7b`), loaded on demand. Ollama swaps it with the main model because both don't fit in VRAM at once. |
 | Speech to text | `faster-whisper` (`small` or `medium`), run on CPU by default so the GPU stays with the LLM |
 | Text to speech (optional) | Piper, on CPU |
@@ -30,7 +30,7 @@ The model runs entirely on the local GPU. The only things that use the network a
 | Config | `~/.config/core/config.toml` |
 | State and logs | `~/.local/share/core/` (SQLite for history, the audit log, and the Canvas cache) |
 
-Goal for the GPU: use as much of the 3060 as possible for the main model. Pick the quant and context length so the model plus KV cache sits near 11 GB, and keep the rest of the pipeline off the GPU unless it needs it.
+Goal for the GPU: use as much of the 3060 as possible for the main model. Pick the quant and context length so the model plus KV cache sits near 7 GB (flash attention plus a q8_0 KV cache lets a 16k context fit), and keep the rest of the pipeline off the GPU unless it needs it.
 
 ## Architecture
 
