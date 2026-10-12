@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 
 from textual import events, work
 from textual.app import App, ComposeResult
@@ -22,7 +23,7 @@ from textual.binding import Binding
 from textual.containers import Center, Middle, VerticalScroll
 from textual.screen import Screen
 from textual.theme import Theme
-from textual.widgets import Collapsible, Input, Markdown, Static
+from textual.widgets import Collapsible, Input, LoadingIndicator, Markdown, Static
 from textual.worker import Worker, WorkerState
 
 from core.agent.loop import Conversation
@@ -38,7 +39,7 @@ class SplashScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         with Middle(), Center():
-            yield Static(id="logo")
+            yield Static(id="logo", markup=False)
         with Center():
             yield Static("connecting to Ollama…", id="splash-status")
 
@@ -154,7 +155,7 @@ class ChatScreen(Screen[None]):
         event.input.clear()
 
         messages = self.query_one("#messages", VerticalScroll)
-        await messages.mount(Static(text, classes="user"))
+        await messages.mount(Static(text, classes="user", markup=False))
         self.reply_worker = self.stream_reply(text)
 
     @work(exclusive=True, group="reply")
@@ -163,15 +164,22 @@ class ChatScreen(Screen[None]):
         assert isinstance(app, CoreApp)
         messages = self.query_one("#messages", VerticalScroll)
 
-        # Thinking gets a collapsed block; only created if the model thinks.
-        thinking_stream = None
+        # Animated dots until the first token arrives, so it never looks frozen.
+        pending = LoadingIndicator(classes="pending")
         answer = Markdown(classes="assistant")
-        await messages.mount(answer)
+        await messages.mount(pending, answer)
         answer_stream = Markdown.get_stream(answer)
         messages.anchor()  # keep scrolled to the bottom while text arrives
 
+        # Thinking goes in a one-line collapsed block, only made if the model thinks.
+        thinking_stream = None
+        box: Collapsible | None = None
+        started = time.monotonic()
+
         try:
             async for chunk in app.conversation.send(text):
+                if pending.is_mounted:
+                    await pending.remove()
                 if chunk.kind == "thinking":
                     if thinking_stream is None:
                         thinking_md = Markdown(classes="thinking")
@@ -180,6 +188,8 @@ class ChatScreen(Screen[None]):
                         thinking_stream = Markdown.get_stream(thinking_md)
                     await thinking_stream.write(chunk.text)
                 else:
+                    if box is not None and box.title == "thinking…":
+                        box.title = f"thought for {time.monotonic() - started:.1f}s"
                     await answer_stream.write(chunk.text)
         except OllamaError as e:
             await answer_stream.write(f"\n\n**Error:** {e}")
@@ -187,6 +197,8 @@ class ChatScreen(Screen[None]):
             await answer_stream.write("\n\n*(stopped)*")
             raise
         finally:
+            if pending.is_mounted:
+                await pending.remove()
             await answer_stream.stop()
             if thinking_stream is not None:
                 await thinking_stream.stop()
@@ -200,14 +212,20 @@ class CoreApp(App[None]):
     TITLE = "CORE"
     CSS = """
     #logo { text-style: bold; color: $primary; content-align: center middle; }
-    #splash-status { color: $text-muted; margin-top: 1; }
+    #splash-status { width: auto; color: $text-muted; margin-top: 1; }
     #messages { padding: 0 1; }
     .user {
         margin: 1 0 0 0; padding: 0 1;
         border-left: thick $primary; background: $boost;
     }
     .assistant { margin: 1 0 0 0; }
-    Collapsible { margin: 1 0 0 0; }
+    .pending { height: 1; width: 8; margin: 1 0 0 0; color: $primary; }
+    /* Thinking: a quiet one-liner, not a big box. */
+    Collapsible {
+        margin: 1 0 0 0; padding: 0; border: none; background: transparent;
+    }
+    Collapsible CollapsibleTitle { padding: 0 1; color: $text-muted; text-style: italic; }
+    Collapsible Contents { padding: 0 0 0 3; }
     .thinking { color: $text-muted; }
     #prompt { dock: bottom; margin-bottom: 1; }
     #status { dock: bottom; height: 1; padding: 0 1; background: $panel; color: $text-muted; }
