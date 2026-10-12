@@ -27,6 +27,22 @@ Keys: Enter sends, Ctrl+C (or Esc) stops the running command, then the reply.
 Ctrl+O expands the latest command's output, Ctrl+Q quits. While a command is
 running, whatever you type goes to that command (e.g. to answer `[y/N]`).
 
+## Senses
+
+All off until you ask, shown in red in the status bar while on.
+
+- **Screen**: "look at my screen…". CORE asks y/n, GNOME takes a screenshot of
+  all monitors (the first time GNOME asks whether CORE may take screenshots),
+  the local vision model (`qwen3-vl:8b`) looks at it, and it's deleted.
+  Say "and keep it" to save it in `~/Pictures/core/`.
+- **Webcam**: "what's on my webcam…". Same flow, one photo.
+- **Mic**: press **Ctrl+T** to start recording, Ctrl+T or Enter to stop. Your
+  words are transcribed on the CPU and appear in the input box so you can check
+  them before sending. The model can't turn the mic on; only you can.
+
+The vision model and the chat model don't both fit in 8 GB, so the first look
+takes a few seconds while Ollama swaps them.
+
 ## Safety
 
 Every command CORE runs is checked by `core/agent/risk.py`:
