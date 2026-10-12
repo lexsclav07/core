@@ -23,7 +23,27 @@ uv run core
 
 The first run writes `~/.config/core/config.toml` with the defaults.
 
-Keys: Enter sends, Ctrl+C (or Esc) stops a reply, Ctrl+Q quits.
+Keys: Enter sends, Ctrl+C (or Esc) stops the running command, then the reply.
+Ctrl+O expands the latest command's output, Ctrl+Q quits. While a command is
+running, whatever you type goes to that command (e.g. to answer `[y/N]`).
+
+## Safety
+
+Every command CORE runs is checked by `core/agent/risk.py`:
+
+- **safe** (read-only or user-scope) runs straight away
+- **confirm** shows a dialog with the command, why it's asking, what it does
+  and how to undo it, and waits for y/n
+- **blocked** is refused (wiping the system, writing to live disks, turning
+  SELinux off for good, `curl | sudo sh`, public tunnels)
+
+After CORE reads outside content (files, web pages, logs) in a turn, every
+later command in that turn needs a y/n. Everything is logged to
+`~/.local/share/core/audit.log`:
+
+```sh
+tail -f ~/.local/share/core/audit.log
+```
 
 ## Check
 

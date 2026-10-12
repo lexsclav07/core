@@ -36,13 +36,20 @@ Goal for the GPU: use as much of the 3060 as possible for the main model. Pick t
 
 ```
 core/
-  app.py            # Textual app: logo splash, chat view, confirmation dialogs, status bar
+  app.py            # Textual app: logo splash, chat view, status bar
+  widgets.py        # approval dialog, masked password field, inline command blocks
   agent/
     loop.py         # tool-calling loop against Ollama's /api/chat
     prompts.py      # system prompt, tool descriptions
-    risk.py         # classifies every command: safe / confirm / blocked
+    ollama_client.py # streaming /api/chat client (content, thinking, tool calls)
+    risk.py         # parses commands (tree-sitter-bash): safe / confirm / blocked
+    risk_rules.py   # per-command rules; unknown commands are confirm
+    disks.py        # which disks are mounted or hold an OS (dd/mkfs on them is blocked)
+    audit.py        # JSON-lines audit log
   tools/
-    shell.py        # run commands in a PTY, stream output, handle sudo prompts
+    registry.py     # @tool: builds the Ollama schema from type hints + docstring
+    pty_runner.py   # run commands in a PTY, stream output, handle sudo prompts
+    shell.py        # run_command tool: classify → taint → approve → run → audit
     files.py        # read, search, write files
     packages.py     # dnf, flatpak, RPM Fusion helpers
     rice.py         # gsettings/dconf, GNOME extensions, themes, wallpapers (with backups)
