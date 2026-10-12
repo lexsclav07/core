@@ -8,7 +8,8 @@ Layout of the chat screen:
     ├──────────────────────────────┤
     │ status bar                   │
     └──────────────────────────────┘
-The collapsible command/output panel and confirmation modals arrive in phase 2.
+Commands appear inline in the chat as collapsible blocks (core/widgets.py);
+confirm-tier commands pop up an approval dialog first.
 """
 
 from __future__ import annotations
@@ -16,20 +17,27 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from pathlib import Path
+from typing import Any
 
 from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
-from textual.screen import Screen
+from textual.screen import ModalScreen, Screen
 from textual.theme import Theme
 from textual.widgets import Collapsible, Input, LoadingIndicator, Markdown, Static
+from textual.widgets.markdown import MarkdownStream
 from textual.worker import Worker, WorkerState
 
 from core.agent.loop import Conversation
 from core.agent.ollama_client import OllamaClient, OllamaError
+from core.agent.risk import Assessment
 from core.config import Config, load_config, resolve_accent
 from core.logo import load_logo
+from core.tools.pty_runner import RunningCommand
+from core.tools.shell import run_command
+from core.widgets import ApprovalModal, CommandBlock, PasswordModal
 
 STATUS_REFRESH_SECONDS = 5
 
@@ -128,22 +136,93 @@ def session_kind() -> str:
     return "remote" if os.environ.get("SSH_CONNECTION") else "local"
 
 
+PROMPT_IDLE = "Ask CORE…  (Ctrl+C stops a reply, Ctrl+O expands output, Ctrl+Q quits)"
+PROMPT_RUNNING = "A command is running: type here to answer it, Ctrl+C stops it"
+
+
+class ReplyBlock:
+    """The widgets for one model reply: loading dots, thinking line, answer.
+
+    A turn has one of these per round; after the model runs commands, the
+    next reply goes in a fresh block below the command output.
+    """
+
+    def __init__(self, messages: VerticalScroll) -> None:
+        self.messages = messages
+        self.pending: LoadingIndicator | None = None
+        self.answer_stream: MarkdownStream | None = None
+        self.thinking_box: Collapsible | None = None
+        self.thinking_stream: MarkdownStream | None = None
+        self.started = time.monotonic()
+
+    async def start(self) -> None:
+        # Animated dots until something arrives, so it never looks frozen.
+        self.pending = LoadingIndicator(classes="pending")
+        await self.messages.mount(self.pending)
+
+    def drop_pending(self) -> None:
+        if self.pending is not None and self.pending.is_mounted:
+            self.pending.remove()
+        self.pending = None
+
+    async def thinking(self, text: str) -> None:
+        if self.thinking_stream is None:
+            md = Markdown(classes="thinking")
+            self.thinking_box = Collapsible(md, title="thinking…", collapsed=True)
+            await self.messages.mount(self.thinking_box)
+            self.thinking_stream = Markdown.get_stream(md)
+        await self.thinking_stream.write(text)
+
+    def done_thinking(self) -> None:
+        if self.thinking_box is not None and self.thinking_box.title == "thinking…":
+            self.thinking_box.title = f"thought for {time.monotonic() - self.started:.1f}s"
+
+    async def content(self, text: str) -> None:
+        self.done_thinking()
+        if self.answer_stream is None:
+            answer = Markdown(classes="assistant")
+            await self.messages.mount(answer)
+            self.answer_stream = Markdown.get_stream(answer)
+        await self.answer_stream.write(text)
+
+    async def close(self) -> None:
+        self.drop_pending()
+        self.done_thinking()
+        for stream in (self.answer_stream, self.thinking_stream):
+            if stream is not None:
+                await stream.stop()
+
+
 class ChatScreen(Screen[None]):
+    """The main screen. It is also the AgentUI the tools talk to."""
+
     BINDINGS = [
-        Binding("ctrl+c", "cancel", "Stop reply", priority=True),
-        Binding("escape", "cancel", "Stop reply", show=False),
+        Binding("ctrl+c", "cancel", "Stop", priority=True),
+        Binding("escape", "cancel", "Stop", show=False),
+        Binding("ctrl+o", "toggle_output", "Expand output"),
     ]
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="messages")
-        yield Input(placeholder="Ask CORE…  (Ctrl+C stops a reply, Ctrl+Q quits)", id="prompt")
+        yield Input(placeholder=PROMPT_IDLE, id="prompt")
         yield StatusBar(id="status")
 
     def on_mount(self) -> None:
         self.query_one("#prompt", Input).focus()
         self.reply_worker: Worker[None] | None = None
+        self.reply: ReplyBlock | None = None
+        self.last_block: CommandBlock | None = None
+
+    @property
+    def running(self) -> RunningCommand | None:
+        return self.last_block.running if self.last_block else None
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
+        if self.running is not None:
+            # Answer the command's prompt (e.g. "[y/N]"); the model doesn't see this.
+            self.running.send_line(event.value)
+            event.input.clear()
+            return
         text = event.value.strip()
         if not text:
             return
@@ -151,7 +230,6 @@ class ChatScreen(Screen[None]):
             self.notify("Still replying. Press Ctrl+C to stop it first.")
             return
         event.input.clear()
-
         messages = self.query_one("#messages", VerticalScroll)
         await messages.mount(Static(text, classes="user", markup=False))
         self.reply_worker = self.stream_reply(text)
@@ -161,49 +239,77 @@ class ChatScreen(Screen[None]):
         app = self.app
         assert isinstance(app, CoreApp)
         messages = self.query_one("#messages", VerticalScroll)
-
-        # Animated dots until the first token arrives, so it never looks frozen.
-        pending = LoadingIndicator(classes="pending")
-        answer = Markdown(classes="assistant")
-        await messages.mount(pending, answer)
-        answer_stream = Markdown.get_stream(answer)
         messages.anchor()  # keep scrolled to the bottom while text arrives
-
-        # Thinking goes in a one-line collapsed block, only made if the model thinks.
-        thinking_stream = None
-        box: Collapsible | None = None
-        started = time.monotonic()
-
+        reply = self.reply = ReplyBlock(messages)
+        await reply.start()
         try:
             async for chunk in app.conversation.send(text):
-                if pending.is_mounted:
-                    await pending.remove()
+                if chunk.kind == "break":
+                    await reply.close()
+                    reply = self.reply = ReplyBlock(messages)
+                    await reply.start()
+                    continue
+                reply.drop_pending()
                 if chunk.kind == "thinking":
-                    if thinking_stream is None:
-                        thinking_md = Markdown(classes="thinking")
-                        box = Collapsible(thinking_md, title="thinking…", collapsed=True)
-                        await messages.mount(box, before=answer)
-                        thinking_stream = Markdown.get_stream(thinking_md)
-                    await thinking_stream.write(chunk.text)
+                    await reply.thinking(chunk.text)
                 else:
-                    if box is not None and box.title == "thinking…":
-                        box.title = f"thought for {time.monotonic() - started:.1f}s"
-                    await answer_stream.write(chunk.text)
+                    await reply.content(chunk.text)
         except OllamaError as e:
-            await answer_stream.write(f"\n\n**Error:** {e}")
+            await reply.content(f"\n\n**Error:** {e}")
         except asyncio.CancelledError:
-            await answer_stream.write("\n\n*(stopped)*")
+            await reply.content("\n\n*(stopped)*")
             raise
         finally:
-            if pending.is_mounted:
-                await pending.remove()
-            await answer_stream.stop()
-            if thinking_stream is not None:
-                await thinking_stream.stop()
+            await reply.close()
+            self.reply = None
 
     def action_cancel(self) -> None:
-        if self.reply_worker and self.reply_worker.state == WorkerState.RUNNING:
+        # Like a terminal: Ctrl+C stops the running command first. CORE's
+        # model is told, and can react. Pressing it again stops the reply.
+        if self.running is not None:
+            self.running.kill()
+        elif self.reply_worker and self.reply_worker.state == WorkerState.RUNNING:
             self.reply_worker.cancel()
+
+    def action_toggle_output(self) -> None:
+        if self.last_block is not None:
+            self.last_block.toggle()
+
+    def on_command_block_changed(self, event: CommandBlock.Changed) -> None:
+        prompt = self.query_one("#prompt", Input)
+        prompt.placeholder = PROMPT_RUNNING if self.running else PROMPT_IDLE
+
+    # AgentUI (see core/tools/registry.py) ---------------------------------
+
+    async def approve(
+        self, command: str, assessment: Assessment, explanation: str, undo: str
+    ) -> bool:
+        if self.reply:
+            self.reply.drop_pending()
+        remote = session_kind() == "remote"
+        modal = ApprovalModal(command, assessment, explanation, undo, remote)
+        return bool(await self._wait_for(modal))
+
+    async def ask_password(self) -> str | None:
+        result = await self._wait_for(PasswordModal())
+        return result if isinstance(result, str) else None
+
+    async def command_view(self, command: str, assessment: Assessment) -> CommandBlock:
+        if self.reply:
+            self.reply.drop_pending()
+            self.reply.done_thinking()
+        block = self.last_block = CommandBlock(command, assessment)
+        await self.query_one("#messages", VerticalScroll).mount(block)
+        return block
+
+    async def _wait_for(self, modal: ModalScreen[Any]) -> Any:
+        """Show a dialog and wait for its answer; close it if the reply is cancelled."""
+        try:
+            return await self.app.push_screen_wait(modal)
+        except asyncio.CancelledError:
+            if modal.is_current:
+                self.app.pop_screen()
+            raise
 
 
 class CoreApp(App[None]):
@@ -228,6 +334,23 @@ class CoreApp(App[None]):
     .thinking { color: $text-muted; }
     #prompt { dock: bottom; margin-bottom: 1; }
     #status { dock: bottom; height: 1; padding: 0 1; background: $panel; color: $text-muted; }
+
+    /* Commands, inline in the chat */
+    .command { height: auto; margin: 1 0 0 0; padding: 0 1; background: $boost; }
+    .command-output { color: $text-muted; padding: 0 0 0 2; }
+
+    /* Approval and password dialogs */
+    ApprovalModal, PasswordModal { align: center middle; }
+    #approval, #password {
+        width: 80%; max-width: 100; height: auto; padding: 1 2;
+        border: thick $primary; background: $surface;
+    }
+    #approval Static { margin-bottom: 1; }
+    .modal-title { text-style: bold; color: $primary; }
+    .modal-command { padding: 0 1; background: $boost; text-style: bold; }
+    .modal-buttons { height: auto; align-horizontal: right; }
+    .modal-buttons Button { margin-left: 2; }
+    .note { color: $text-muted; }
     """
 
     def __init__(self, config: Config) -> None:
@@ -239,13 +362,18 @@ class CoreApp(App[None]):
             config.model.main,
             num_ctx=config.model.num_ctx,
             think=config.model.think,
+            tools=[run_command],
+            cwd=str(Path.home()),
+            session=session_kind(),
         )
 
     def on_mount(self) -> None:
         accent = resolve_accent(self.config.ui.accent)
         self.register_theme(Theme(name="core", primary=accent, dark=True))
         self.theme = "core"
-        self.push_screen(ChatScreen())
+        chat = ChatScreen()
+        self.conversation.ui = chat
+        self.push_screen(chat)
         self.push_screen(SplashScreen())
 
     async def on_unmount(self) -> None:

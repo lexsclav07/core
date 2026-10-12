@@ -41,7 +41,7 @@ class FakeUI:
     async def ask_password(self) -> str | None:
         return None
 
-    def command_view(self, command: str, assessment: Assessment) -> FakeView:
+    async def command_view(self, command: str, assessment: Assessment) -> FakeView:
         return FakeView(self.statuses)
 
 
@@ -98,7 +98,7 @@ async def test_confirm_command_waits_for_lex(audit_in_tmp: Path) -> None:
     )
     assert ui.asked == ["touch /etc/core-test"]
     assert ui.statuses == ["denied"]
-    assert "declined" in requests[1]["messages"][-1]["content"]
+    assert "pressed n" in requests[1]["messages"][-1]["content"]
     assert json.loads(audit_in_tmp.read_text())["approval"] == "denied"
 
 

@@ -144,9 +144,14 @@ async def run_in_pty(
             timed_out = not killed
             await _stop(proc)
             break
+    except asyncio.CancelledError:
+        # The whole reply was cancelled: don't leave the command running.
+        await _stop(proc)
+        raise
     finally:
+        for task in (exited, killer):
+            task.cancel()
         loop.remove_reader(master)
-        killer.cancel()
         os.close(master)
 
     _emit(pending, raw, on_output)

@@ -2,6 +2,8 @@
 
 import os
 
+import pytest
+
 from core.tools.pty_runner import (
     SUDO_MARKER,
     CommandResult,
@@ -94,3 +96,16 @@ def test_summarise_keeps_head_and_tail() -> None:
     out = summarise(text, head=100, tail=100)
     assert out.startswith("a" * 100) and out.endswith("b" * 100)
     assert "5800 characters skipped" in out
+
+
+async def test_cancelling_the_reply_stops_the_command(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    import asyncio
+
+    marker = tmp_path / "still-running"
+    task = asyncio.ensure_future(run(f"sleep 0.5; touch {marker}"))
+    await asyncio.sleep(0.2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.sleep(0.6)
+    assert not marker.exists()

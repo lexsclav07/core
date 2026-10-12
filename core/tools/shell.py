@@ -11,6 +11,8 @@ vague or wrong explanation can't hide what actually runs.
 
 from __future__ import annotations
 
+import asyncio
+
 from core.agent import audit
 from core.agent.risk import Assessment, Tier, classify, default_context
 from core.tools.pty_runner import run_in_pty, summarise
@@ -52,7 +54,7 @@ async def run_command(
             "earlier output this turn came from outside content (files, web, logs)",
             assessment.reads_untrusted,
         )
-    view = ctx.ui.command_view(command, assessment)
+    view = await ctx.ui.command_view(command, assessment)
 
     def log(
         approval: audit.Approval,
@@ -80,17 +82,26 @@ async def run_command(
         if not await ctx.ui.approve(command, assessment, explanation, undo):
             view.finish("denied")
             log("denied")
-            return ToolResult("Lex declined to run this command. Ask what they'd like instead.")
+            return ToolResult(
+                "Not run: Lex pressed n in CORE's approval dialog, so they've already "
+                "answered. Don't ask for approval again or retry it. Say briefly that "
+                "you didn't run it, and offer an alternative only if there's a good one."
+            )
         approval = "lex"
 
-    result = await run_in_pty(
-        command,
-        cwd=ctx.cwd,
-        time_limit=max(1, min(timeout, MAX_TIMEOUT)),
-        on_output=view.output,
-        ask_password=ctx.ui.ask_password,
-        on_start=view.attach,
-    )
+    try:
+        result = await run_in_pty(
+            command,
+            cwd=ctx.cwd,
+            time_limit=max(1, min(timeout, MAX_TIMEOUT)),
+            on_output=view.output,
+            ask_password=ctx.ui.ask_password,
+            on_start=view.attach,
+        )
+    except asyncio.CancelledError:
+        view.finish("stopped")
+        log(approval, note="reply cancelled by Lex")
+        raise
     note = "timed out" if result.timed_out else "killed by Lex" if result.killed else ""
     view.finish(note or f"exit {result.exit_code}", result)
     log(approval, exit_code=result.exit_code, duration_s=result.duration_s, note=note)
