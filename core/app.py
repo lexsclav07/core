@@ -38,10 +38,11 @@ class SplashScreen(Screen[None]):
     """Shows the logo while checking that Ollama is up. Any key skips it."""
 
     def compose(self) -> ComposeResult:
-        with Middle(), Center():
-            yield Static(id="logo", markup=False)
-        with Center():
-            yield Static("connecting to Ollama…", id="splash-status")
+        with Middle():
+            with Center():
+                yield Static(id="logo", markup=False)
+            with Center():
+                yield Static("connecting to Ollama…", id="splash-status")
 
     def on_mount(self) -> None:
         self.frames = load_logo()
