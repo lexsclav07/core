@@ -20,7 +20,7 @@ import time
 from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Center, Middle, VerticalScroll
+from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.theme import Theme
 from textual.widgets import Collapsible, Input, LoadingIndicator, Markdown, Static
@@ -38,11 +38,8 @@ class SplashScreen(Screen[None]):
     """Shows the logo while checking that Ollama is up. Any key skips it."""
 
     def compose(self) -> ComposeResult:
-        with Middle():
-            with Center():
-                yield Static(id="logo", markup=False)
-            with Center():
-                yield Static("connecting to Ollama…", id="splash-status")
+        yield Static(id="logo", markup=False)
+        yield Static("connecting to Ollama…", id="splash-status")
 
     def on_mount(self) -> None:
         self.frames = load_logo()
@@ -212,8 +209,9 @@ class ChatScreen(Screen[None]):
 class CoreApp(App[None]):
     TITLE = "CORE"
     CSS = """
-    #logo { text-style: bold; color: $primary; content-align: center middle; }
-    #splash-status { width: auto; color: $text-muted; margin-top: 1; }
+    SplashScreen { align: center middle; }
+    #logo { width: 100%; content-align: center middle; text-style: bold; color: $primary; }
+    #splash-status { width: 100%; content-align: center middle; color: $text-muted; margin-top: 1; }
     #messages { padding: 0 1; }
     .user {
         margin: 1 0 0 0; padding: 0 1;
