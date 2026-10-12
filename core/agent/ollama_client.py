@@ -6,7 +6,8 @@ easier to debug.
 
 Streaming: /api/chat returns one JSON object per line (NDJSON). Each line has a
 piece of the reply in message.content (and message.thinking when thinking is
-on). The last line has "done": true.
+on). Tool calls arrive whole, in message.tool_calls. The last line has
+"done": true.
 """
 
 from __future__ import annotations
@@ -22,11 +23,22 @@ Message = dict[str, Any]
 
 
 @dataclass(frozen=True)
-class Chunk:
-    """One streamed piece of a reply."""
+class ToolCall:
+    name: str
+    arguments: dict[str, Any]
 
-    kind: Literal["thinking", "content"]
-    text: str
+
+@dataclass(frozen=True)
+class Chunk:
+    """One streamed piece of a reply.
+
+    "break" isn't from Ollama: the agent loop sends it after running tools, so
+    the TUI starts a fresh text block below the command output.
+    """
+
+    kind: Literal["thinking", "content", "tool_call", "break"]
+    text: str = ""
+    call: ToolCall | None = None
 
 
 @dataclass(frozen=True)
@@ -76,15 +88,18 @@ class OllamaClient:
         *,
         num_ctx: int,
         think: bool,
+        tools: list[dict[str, Any]] | None = None,
     ) -> AsyncIterator[Chunk]:
-        """Stream a chat reply as thinking and content chunks."""
-        body = {
+        """Stream a chat reply as thinking, content, and tool_call chunks."""
+        body: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "stream": True,
             "think": think,
             "options": {"num_ctx": num_ctx},
         }
+        if tools:
+            body["tools"] = tools
         try:
             async with self._http.stream("POST", "/api/chat", json=body) as resp:
                 if resp.status_code != 200:
@@ -101,6 +116,12 @@ class OllamaClient:
                         yield Chunk("thinking", msg["thinking"])
                     if msg.get("content"):
                         yield Chunk("content", msg["content"])
+                    for tc in msg.get("tool_calls") or []:
+                        fn = tc.get("function", {})
+                        args = fn.get("arguments") or {}
+                        if isinstance(args, str):  # some models send a JSON string
+                            args = _json_or_empty(args)
+                        yield Chunk("tool_call", call=ToolCall(fn.get("name", ""), args))
                     if data.get("done"):
                         return
         except httpx.HTTPError as e:
@@ -115,6 +136,14 @@ class OllamaClient:
             raise OllamaError(_error_text(resp))
         result: dict[str, Any] = resp.json()
         return result
+
+
+def _json_or_empty(text: str) -> dict[str, Any]:
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def _error_text(resp: httpx.Response) -> str:
