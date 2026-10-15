@@ -91,6 +91,8 @@ class CommandBlock(Vertical):
     """One command in the chat: `$ cmd` with a status badge, then its output.
 
     Click the header (or Ctrl+O for the latest block) to expand or collapse.
+    `trigger` is the hand sign that ran it, for gesture macros (macros.py).
+    Those never wait here: Lex approved them when gesture mode turned on.
     """
 
     class Changed(Message):
@@ -100,14 +102,17 @@ class CommandBlock(Vertical):
             super().__init__()
             self.block = block
 
-    def __init__(self, command: str, assessment: Assessment) -> None:
+    def __init__(
+        self, command: str, assessment: Assessment, trigger: str = "", approved: bool = False
+    ) -> None:
         super().__init__(classes="command")
         self.command = command
         self.assessment = assessment
+        self.trigger = trigger
         self.raw = ""
         # Confirm-tier commands wait for Lex; nothing runs until attach().
-        self.status = "waiting" if assessment.tier == Tier.CONFIRM else "running"
-        self.approved = False
+        self.status = "waiting" if assessment.tier == Tier.CONFIRM and not trigger else "running"
+        self.approved = approved
         self.expanded = False
         self.running: RunningCommand | None = None
         self._render_pending = False
@@ -162,9 +167,13 @@ class CommandBlock(Vertical):
             "blocked": ("⛔ blocked", "bold red"),
             "denied": ("✗ not run", "red"),
             "invalid": ("✗ won't work (checked)", "yellow"),
+            "not approved": ("✗ not run: needs a y/n now, press Ctrl+G twice", "yellow"),
+            "launched": ("✓ started", "green"),
             "exit 0": ("✓", "green"),
         }.get(self.status, (f"✗ {self.status}", "red"))
         header = Text.assemble(("$ ", "dim"), (self.command, "bold"), "  ", (badge, style))
+        if self.trigger:
+            header = Text.assemble((self.trigger, "bold"), "  ", header)
         if self.status == "blocked":
             header.append(f"\n  {self.assessment.reason}", "red")
         elif self.approved:

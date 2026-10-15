@@ -46,3 +46,21 @@ async def test_blocked_block_shows_the_reason() -> None:
     async with Host(block).run_test():
         block.finish("blocked")
         assert "would wipe your home folder" in block._header().plain
+
+
+async def test_macro_block_never_waits_and_shows_the_sign() -> None:
+    block = CommandBlock("ptyxis --new-window", CONFIRM, trigger="✌ peace", approved=True)
+    async with Host(block).run_test():
+        header = block._header().plain
+        assert header.startswith("✌ peace") and "approved" in header
+        assert "waiting" not in header
+        block.finish("launched")
+        assert "started" in block._header().plain
+
+
+async def test_unapproved_macro_block_never_says_approved() -> None:
+    block = CommandBlock("ptyxis --new-window", CONFIRM, trigger="✌ peace")
+    async with Host(block).run_test():
+        block.finish("not approved")
+        header = block._header().plain
+        assert "not run" in header and "approved" not in header

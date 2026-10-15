@@ -26,6 +26,7 @@ The model runs entirely on the local GPU. The only things that use the network a
 | Vision model | About 7B vision-language model (for example `qwen2.5vl:7b`), loaded on demand. Ollama swaps it with the main model because both don't fit in VRAM at once. |
 | Speech to text | `faster-whisper` (`small` or `medium`), run on CPU by default so the GPU stays with the LLM |
 | Text to speech (optional) | Piper, on CPU |
+| Hand tracking (gesture mode) | MediaPipe Hand Landmarker, on CPU, in its own process |
 | Secrets | GNOME Keyring through the `keyring` package. Never plain files. |
 | Config | `~/.config/core/config.toml` |
 | State and logs | `~/.local/share/core/` (SQLite for history, the audit log, and the Canvas cache) |
@@ -55,6 +56,10 @@ core/
     rice.py         # gsettings/dconf, GNOME extensions, themes, wallpapers (with backups)
     screen.py       # screenshots and recording through xdg-desktop-portal / PipeWire
     camera.py       # webcam snapshot (OpenCV / v4l2)
+    signs.py        # 21 hand points → sign name ("peace"), debouncing
+    hand_worker.py  # separate process: webcam → MediaPipe → hand points as JSON lines
+    macros.py       # gesture macros through risk.py: arm (y/n) → fire → audit
+    gestures.py     # gesture mode (Ctrl+G): runs the worker, fires macros
     mic.py          # push-to-talk recording → faster-whisper
     notify.py       # read GNOME notifications from D-Bus, send notifications
     mail_gmail.py   # Gmail API
@@ -99,6 +104,7 @@ CORE has a lot of power over the machine and can be reached remotely, so these r
 - Screen: use the xdg-desktop-portal Screenshot / ScreenCast APIs (GNOME Wayland blocks direct capture). The first use shows GNOME's permission dialog, which is expected. Recordings go to `~/Videos/core/`.
 - Images go to the vision model and are deleted afterwards unless Lex asks to keep them.
 - Remote sessions: senses still work, and CORE tells Lex it's capturing the PC's screen or camera, not the laptop's.
+- **Gesture mode** (hand signs run macros): only Lex turns it on (Ctrl+G), never the model. It is refused over SSH because whoever is at the PC would be making the signs. It shows the status-bar indicator and a GNOME notification, and it turns itself off after `auto_off` minutes. Frames stay inside the worker process and only hand points come out. Macros are Lex's own commands from `[gestures.macros]`, and the model is never in that loop. Every macro goes through `risk.py`: blocked macros are refused, sudo macros are refused (there's no terminal for the password), and each confirm-tier macro gets **one** y/n when gesture mode turns on (showing the exact command), not one on every sign. Each run is shown in the chat and audited. Macros are classified again when they fire, and one that has become confirm-tier without approval doesn't run.
 
 ## Integrations
 
@@ -142,7 +148,7 @@ All credentials live in GNOME Keyring. Each integration can be switched on or of
 2. Shell tool with a PTY, risk classifier, confirmation modal, and audit log. Get this solid before anything else.
 3. systemd user service, tmux, autostart, Tailscale + SSH remote access.
 4. Package and driver helpers, GNOME ricing with backups.
-5. Screen and vision model, then mic (push-to-talk + whisper), then webcam.
+5. Screen and vision model, then mic (push-to-talk + whisper), then webcam, then gesture mode (hand-sign macros).
 6. Notifications, Canvas, then Google (Gmail + Calendar + .ics), Outlook, and Discord summaries.
 7. Later: optional LoRA fine-tune of the main model (Unsloth/QLoRA on the 3060) using real conversation logs where CORE made mistakes, plus TTS replies and Wake-on-LAN.
 

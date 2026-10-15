@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from rich.markup import escape
 from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -36,10 +37,12 @@ from core.agent.ollama_client import OllamaClient, OllamaError
 from core.agent.risk import Assessment
 from core.config import Config, load_config, resolve_accent
 from core.logo import load_logo
+from core.tools import gestures
 from core.tools.mic import MicError, Recorder, transcribe
 from core.tools.pty_runner import RunningCommand
 from core.tools.senses import look_at_screen, look_at_webcam
 from core.tools.shell import run_command
+from core.tools.signs import label
 from core.widgets import ApprovalModal, CommandBlock, PasswordModal
 
 STATUS_REFRESH_SECONDS = 5
@@ -88,6 +91,9 @@ class SplashScreen(Screen[None]):
 class StatusBar(Static):
     """Model state · VRAM · senses · local/remote."""
 
+    parts: tuple[str, ...] = ("…",)  # model and VRAM, refreshed every few seconds
+    sign: str | None = None  # the hand sign gesture mode sees right now
+
     def on_mount(self) -> None:
         self.update("…")
         self.refresh_status()
@@ -111,11 +117,18 @@ class StatusBar(Static):
                 model_part = f"{model} [yellow]●[/] {pct}% GPU"
         except OllamaError:
             model_part = f"{model} [red]● Ollama down[/]"
+        self.parts = (model_part, await vram_usage())
+        self.redraw()
 
+    def redraw(self) -> None:
+        """Cheap: no queries, so senses and signs can update it many times a second."""
+        app = self.app
+        assert isinstance(app, CoreApp)
         senses = app.active_senses
         sense_part = f"[b red]● {' + '.join(sorted(senses))}[/]" if senses else "senses: off"
-        parts = [model_part, await vram_usage(), sense_part, session_kind()]
-        self.update(" │ ".join(parts))
+        if self.sign and "gestures" in senses:
+            sense_part += f" {escape(label(self.sign))}"  # Lex's own sign names may hold [ ]
+        self.update(" │ ".join([*self.parts, sense_part, session_kind()]))
 
 
 async def vram_usage() -> str:
@@ -141,7 +154,9 @@ def session_kind() -> str:
     return "remote" if os.environ.get("SSH_CONNECTION") else "local"
 
 
-PROMPT_IDLE = "Ask CORE…  (Ctrl+T talk, Ctrl+C stop, Ctrl+O expand output, Ctrl+Q quit)"
+PROMPT_IDLE = (
+    "Ask CORE…  (Ctrl+T talk, Ctrl+G hand signs, Ctrl+C stop, Ctrl+O expand output, Ctrl+Q quit)"
+)
 PROMPT_RUNNING = "A command is running: type here to answer it, Ctrl+C stops it"
 PROMPT_RECORDING = "● Recording… press Ctrl+T or Enter to stop"
 PROMPT_TRANSCRIBING = "Transcribing…"
@@ -216,6 +231,7 @@ class ChatScreen(Screen[None]):
         Binding("escape", "cancel", "Stop", show=False),
         Binding("ctrl+o", "toggle_output", "Expand output"),
         Binding("ctrl+t", "talk", "Talk", priority=True),
+        Binding("ctrl+g", "gestures", "Hand signs", priority=True),
     ]
 
     def compose(self) -> ComposeResult:
@@ -229,6 +245,7 @@ class ChatScreen(Screen[None]):
         self.reply: ReplyBlock | None = None
         self.last_block: CommandBlock | None = None
         self.recorder: Recorder | None = None
+        self.gesture_worker: Worker[None] | None = None
 
     @property
     def running(self) -> RunningCommand | None:
@@ -334,11 +351,37 @@ class ChatScreen(Screen[None]):
         prompt.cursor_position = len(prompt.value)
         prompt.focus()
 
+    def action_gestures(self) -> None:
+        """Gesture mode on/off. Like the mic, only Lex can turn it on."""
+        worker = self.gesture_worker
+        if worker is not None and worker.state in (WorkerState.PENDING, WorkerState.RUNNING):
+            worker.cancel()
+            self.notify("Gesture mode off.")
+            return
+        self.gesture_worker = self._run_gestures()
+
+    @work(exclusive=True, group="gestures")
+    async def _run_gestures(self) -> None:
+        try:
+            # Read the file again, so edited macros apply without restarting CORE.
+            config = load_config()
+        except (OSError, ValueError) as e:  # TOMLDecodeError is a ValueError
+            self.gesture_note(f"Can't read config.toml: {e}", warning=True)
+            return
+        try:
+            await gestures.run(
+                self, config.gestures, terminal=config.ui.terminal, session=session_kind()
+            )
+        except Exception as e:  # e.g. hold = "fast" in config: don't take all of CORE down
+            self.gesture_note(f"Gesture mode stopped after an error: {e!r}", warning=True)
+
     def action_toggle_output(self) -> None:
         if self.last_block is not None:
             self.last_block.toggle()
 
     def on_command_block_changed(self, event: CommandBlock.Changed) -> None:
+        if event.block is not self.last_block:
+            return  # e.g. a gesture macro; it never takes typed input
         prompt = self.query_one("#prompt", Input)
         prompt.placeholder = PROMPT_RUNNING if self.running else PROMPT_IDLE
 
@@ -372,7 +415,30 @@ class ChatScreen(Screen[None]):
             app.active_senses.add(name)
         else:
             app.active_senses.discard(name)
-        self.query_one(StatusBar).refresh_status()
+        self.query_one(StatusBar).redraw()
+
+    # GestureUI (see core/tools/gestures.py) -------------------------------
+
+    def show_sign(self, sign: str | None) -> None:
+        status = self.query_one(StatusBar)
+        status.sign = sign
+        status.redraw()
+
+    def gesture_note(self, text: str, warning: bool = False) -> None:
+        if warning:
+            self.notify(text, severity="warning", timeout=8, markup=False)
+        else:
+            self.notify(text, timeout=4, markup=False)
+
+    async def macro_view(
+        self, sign: str, command: str, assessment: Assessment, approved: bool
+    ) -> CommandBlock:
+        # Not self.last_block: typing and Ctrl+C keep going to the model's command.
+        block = CommandBlock(command, assessment, trigger=sign, approved=approved)
+        messages = self.query_one("#messages", VerticalScroll)
+        await messages.mount(block)
+        messages.scroll_end(animate=False)
+        return block
 
     async def _wait_for(self, modal: ModalScreen[Any]) -> Any:
         """Show a dialog and wait for its answer; close it if the reply is cancelled."""

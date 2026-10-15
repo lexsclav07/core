@@ -43,6 +43,47 @@ All off until you ask, shown in red in the status bar while on.
 The vision model and the chat model don't both fit in 8 GB, so the first look
 takes a few seconds while Ollama swaps them.
 
+## Hand signs (gesture mode)
+
+Press **Ctrl+G** and CORE watches the webcam for hand signs. Each sign runs a
+macro, a command you set in `~/.config/core/config.toml`. Out of the box,
+✌ peace opens a new terminal window. Press Ctrl+G again to turn it off. It
+also turns itself off after an hour (`auto_off`).
+
+```toml
+[gestures.macros]
+peace = "{terminal} --new-window"      # {terminal} is the one in [ui]
+thumbs_up = "playerctl play-pause"
+fist = "loginctl lock-session"
+gun = "flatpak run org.mozilla.firefox"
+
+[gestures.shapes]                      # your own signs: the fingers that are up
+gun = "thumb index"
+```
+
+Signs: ✋ `open_palm`, ✊ `fist`, ✌ `peace`, ☝ `point`, 👍 `thumbs_up`,
+👎 `thumbs_down`, 🤘 `rock`, 🤙 `call_me`, `three`, plus your own shapes.
+Hold a sign for about half a second and it fires once. To fire it again, drop
+your hand and make the sign again. The status bar shows the sign CORE sees
+right now, which helps when a sign isn't being picked up. After editing the
+config, press Ctrl+G twice; you don't need to restart CORE.
+
+- **Safety**: macros go through the same checks as every other command.
+  Macros that change something (opening an app counts) get one y/n each when
+  gesture mode turns on, and after that they run as soon as you make the sign.
+  Blocked commands are refused, and so are `sudo` macros, because there's no
+  terminal for the password. Every run shows in the chat and goes in the audit log.
+- **Privacy**: tracking runs on the CPU in a separate process
+  (`core/tools/hand_worker.py`), and frames are never saved or sent anywhere.
+  The first time, CORE downloads MediaPipe's hand model (7.8 MB) and checks
+  it against a fixed SHA-256.
+- **Only at the PC**: CORE refuses gesture mode over SSH, because whoever is in
+  front of the PC's webcam would be the one making the signs.
+- **One app at a time**: the webcam is busy while gesture mode is on, so turn
+  it off before asking "what's on my webcam".
+- **No webcam to test with?** Set `camera = "some-video.mp4"` under
+  `[gestures]` and it reads the video instead.
+
 ## Safety
 
 Every command CORE runs is checked by `core/agent/risk.py`:
