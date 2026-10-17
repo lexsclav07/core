@@ -133,16 +133,29 @@ async def look_at_webcam(ctx: ToolContext, question: str, keep: bool = False) ->
         return ToolResult(await _answer(ctx, photo, question, keep, "webcam"), untrusted=True)
 
 
+# Ask for MJPEG first: raw video at 1080p only manages ~5 fps over USB 2, so
+# waiting out 20 frames took ~9 s on Lex's T1A webcam; MJPEG takes ~1.7 s.
+# The empty option list falls back to the camera's own default mode.
+CAPTURE_MODES = [
+    ["-input_format", "mjpeg", "-video_size", "1920x1080"],
+    ["-input_format", "mjpeg"],
+    [],
+]
+
+
 async def _snapshot(device: Path, out: Path) -> bool:
-    """Grab one frame with ffmpeg, skipping the first ~20 while exposure settles."""
-    proc = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "v4l2", "-i", str(device),
-        "-vf", r"select=gte(n\,20)", "-frames:v", "1", "-y", str(out),
-        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-    )  # fmt: skip
-    try:
-        code = await asyncio.wait_for(proc.wait(), timeout=15)
-    except TimeoutError:
-        proc.kill()
-        return False
-    return code == 0 and out.exists() and out.stat().st_size > 0
+    """Grab one frame with ffmpeg, skipping the first 20 while exposure settles."""
+    for mode in CAPTURE_MODES:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "v4l2", *mode,
+            "-i", str(device), "-vf", r"select=gte(n\,20)", "-frames:v", "1", "-y", str(out),
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        )  # fmt: skip
+        try:
+            code = await asyncio.wait_for(proc.wait(), timeout=15)
+        except TimeoutError:
+            proc.kill()
+            continue
+        if code == 0 and out.exists() and out.stat().st_size > 0:
+            return True
+    return False

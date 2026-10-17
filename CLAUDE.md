@@ -30,7 +30,7 @@ The model runs entirely on the local GPU. The only things that use the network a
 | Config | `~/.config/core/config.toml` |
 | State and logs | `~/.local/share/core/` (SQLite for history, the audit log, and the Canvas cache) |
 
-Goal for the GPU: use as much of the 3060 as possible for the main model. Pick the quant and context length so the model plus KV cache sits near 7 GB (flash attention plus a q8_0 KV cache lets a 16k context fit), and keep the rest of the pipeline off the GPU unless it needs it.
+Goal for the GPU: use as much of the 3060 as possible for the main model. Pick the quant and context length so the model plus KV cache sits near 6 GB: Chrome, Discord and GNOME can take ~1.4 GB of VRAM, so CORE uses an 8k context (16k pushed part of the model onto the CPU), and keep the rest of the pipeline off the GPU unless it needs it.
 
 ## Architecture
 
