@@ -92,6 +92,9 @@ def _open_camera(cv2: Any, camera: str) -> tuple[str, Any]:
     for device in devices:
         backend = cv2.CAP_V4L2 if device.startswith("/dev/") else cv2.CAP_ANY  # file = test video
         cap = cv2.VideoCapture(device, backend)
+        # MJPEG first, as for snapshots (senses.py): raw video is slow over USB 2
+        # on Lex's T1A webcam. A camera without MJPEG just ignores this.
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc(*"MJPG"))
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_WIDTH * 3 // 4)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # always the newest frame, not a queued one
