@@ -18,3 +18,4 @@ token*.json
 *.mp4
 *.webm
 !core/logo/*.png
+!docs/*.png

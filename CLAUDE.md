@@ -72,7 +72,7 @@ core/
     discord.py      # summarise Discord mentions + DMs from desktop notifications
     canvas.py       # Canvas LMS REST API
     calendar.py     # .ics generation + Google Calendar API
-  logo/             # character art, wordmark, animation frames
+  logo/             # logo.txt / small.txt (made from docs/logo.png by from_image.py), frames
   config.py
   secrets.py
 systemd/            # user units
@@ -133,13 +133,8 @@ All credentials live in GNOME Keyring. Each integration can be switched on or of
 
 ## Logo and TUI look
 
-- **Logo: placeholder for now.** Lex will design the real logo later. Until then the splash screen shows just this, loaded from `core/logo/logo.txt` so it can be swapped without touching code:
-
-```
-[ CORE ]
-```
-
-- Don't invent mascot art. Build the splash so it reads any multi-line text file (and optional extra frames for animation) from `core/logo/`.
+- **Logo: Lex's design.** The letters C O / R E as chunky blocks in a 2×2 square, in the style of Supercell's logo. The image is `docs/logo.png` (shown at the top of the README). The terminal versions are block-character text made from it by `core/logo/from_image.py`: `core/logo/logo.txt` (splash, 40 wide) and `core/logo/small.txt` (welcome panel, 20 wide, hidden in windows under 32 rows). Regenerate them from the image rather than hand-editing; a test checks `logo.txt` still matches the image.
+- Don't invent mascot art. The splash reads any multi-line text file (and optional `frame_*.txt` frames for animation) from `core/logo/`.
 - Colours come from a theme in config. Default to one accent colour that matches the GNOME accent if it can be read through `gsettings`.
 - TUI layout: a status bar along the top (model loaded, VRAM use, context used, active senses, local or remote session, clock), chat in the middle with collapsible command blocks, the input box, and a footer that only shows the keys that work right now. Confirmation modals for the confirm tier. Status colours (green, yellow, red) are libadwaita's, set explicitly: a Textual theme given only an accent derives them from it, which would turn the red "sense is on" dot into the accent colour.
 

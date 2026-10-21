@@ -24,6 +24,8 @@ SplashScreen { align: center middle; }
     margin: 1 0; padding: 1 3;
     border: round $primary 50%;
 }
+#welcome-logo { width: auto; margin-bottom: 1; color: $primary; text-style: bold; }
+#welcome-text { width: auto; }
 .who { height: 1; margin: 1 0 0 0; }
 .user { padding: 0 1; border-left: thick $primary; background: $boost; }
 .assistant { margin: 0; padding: 0 1; }

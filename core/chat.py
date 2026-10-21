@@ -23,7 +23,7 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
-from textual import work
+from textual import events, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
@@ -37,7 +37,7 @@ from core.agent.ollama_client import OllamaError
 from core.agent.risk import Assessment
 from core.config import load_config
 from core.handview import HandView
-from core.logo import load_logo
+from core.logo import load_small_logo
 from core.status import Snapshot, render, session_kind, vram_usage
 from core.tools import gestures
 from core.tools.mic import MicError, Recorder, transcribe
@@ -205,10 +205,14 @@ class ChatScreen(Screen[None]):
         yield Input(placeholder=PROMPT_IDLE, id="prompt")
         yield Footer()
         yield HandView(id="hand")
-        yield VerticalScroll(Welcome(load_logo()[0]), id="messages")
+        yield VerticalScroll(Welcome(load_small_logo()), id="messages")
 
     def on_mount(self) -> None:
         self.prompt.focus()
+
+    def on_resize(self, event: events.Resize) -> None:
+        for welcome in self.query(Welcome):
+            welcome.fit(event.size.height)
 
     @property
     def core(self) -> CoreApp:
@@ -366,7 +370,7 @@ class ChatScreen(Screen[None]):
         self.last_block = None
         self.messages.anchor(False)  # back to the top, where the welcome panel goes
         await self.messages.remove_children()
-        await self.messages.mount(Welcome(load_logo()[0]))
+        await self.messages.mount(Welcome(load_small_logo()))
         self._update_context()
         self._changed()
         self.notify("New chat. CORE has forgotten the last one.")

@@ -10,7 +10,7 @@ from datetime import datetime
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import VerticalScroll
+from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
@@ -34,10 +34,8 @@ def greeting(now: datetime | None = None) -> str:
     return f"Good {part}, Lex."
 
 
-def welcome_text(logo: str, now: datetime | None = None) -> str:
+def welcome_text(now: datetime | None = None) -> str:
     lines = [
-        f"[b $primary]{escape(logo)}[/]",
-        "",
         f"[b]{greeting(now)}[/] I run on this PC's GPU and can work the machine for you.",
         "Anything that changes the system asks you first.",
         "",
@@ -53,11 +51,28 @@ def welcome_text(logo: str, now: datetime | None = None) -> str:
     return "\n".join(lines)
 
 
-class Welcome(Static):
-    """Removed when the first message is sent; back after Ctrl+L."""
+class Welcome(Vertical):
+    """Removed when the first message is sent; back after Ctrl+L.
+
+    The logo only shows when the window is tall enough: in an 80×24 SSH
+    window it would push the suggestions off the screen.
+    """
+
+    MIN_HEIGHT_FOR_LOGO = 32  # rows: logo + text + the bars around the chat
 
     def __init__(self, logo: str) -> None:
-        super().__init__(welcome_text(logo), id="welcome")
+        super().__init__(id="welcome")
+        self.logo = logo
+
+    def compose(self) -> ComposeResult:
+        yield Static(self.logo, id="welcome-logo", markup=False)
+        yield Static(welcome_text(), id="welcome-text")
+
+    def on_mount(self) -> None:
+        self.fit(self.app.size.height)
+
+    def fit(self, screen_height: int) -> None:
+        self.query_one("#welcome-logo").display = screen_height >= self.MIN_HEIGHT_FOR_LOGO
 
 
 SIGN_LIST = "  ".join(f"{EMOJI.get(s, '')} {s}".strip() for s in (*SIGNS, *THUMB_SIGNS))

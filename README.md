@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="CORE logo" width="240">
+</p>
+
 # CORE
 
 A local AI assistant for Fedora that lives in the terminal. See `CLAUDE.md` for the full design.
@@ -47,6 +51,20 @@ Under each reply is how long it took and how fast the model wrote (tok/s).
 
 If you're in another window, CORE sends a GNOME notification when it needs a
 y/n, or when a reply that took over 10 seconds is ready.
+
+### The logo
+
+`docs/logo.png` is the logo. The splash screen and welcome panel show it as
+block characters, made from the image (40 and 20 characters wide):
+
+```sh
+uv run python -m core.logo.from_image docs/logo.png --width 40 > core/logo/logo.txt
+uv run python -m core.logo.from_image docs/logo.png --width 20 > core/logo/small.txt
+```
+
+Change the image and run those again; CORE picks up the new files on its next
+start. Extra `core/logo/frame_01.txt`, `frame_02.txt`, … play as a splash
+animation.
 
 ### Ricing the TUI
 

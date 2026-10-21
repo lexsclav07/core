@@ -85,10 +85,20 @@ def test_greeting(hour: int, words: str) -> None:
     assert greeting(datetime(2026, 1, 1, hour)).startswith(words)
 
 
-def test_welcome_shows_the_logo_and_suggestions() -> None:
-    text = plain(welcome_text("[ CORE ]"))
-    assert text.startswith("[ CORE ]")
+def test_welcome_shows_suggestions() -> None:
+    text = plain(welcome_text(datetime(2026, 1, 1, 9)))
+    assert text.startswith("Good morning, Lex.")
     assert "› install prism launcher" in text
+
+
+@pytest.mark.parametrize(("size", "shown"), [((120, 40), True), ((80, 24), False)])
+async def test_welcome_logo_only_when_there_is_room(
+    app: CoreApp, size: tuple[int, int], shown: bool
+) -> None:
+    async with app.run_test(size=size) as pilot:
+        await pilot.press("escape")
+        await pilot.pause(0.1)
+        assert app.screen.query_one("#welcome-logo").display is shown
 
 
 def test_turn_summary() -> None:
