@@ -8,7 +8,7 @@ def test_first_run_writes_defaults(tmp_path: Path) -> None:
     cfg = load_config(path)
     assert path.exists()
     assert cfg.model.main == "qwen3:8b"
-    assert cfg.model.num_ctx == 16384
+    assert cfg.model.num_ctx == 8192
     assert cfg.ollama.url == "http://127.0.0.1:11434"
 
 
@@ -17,7 +17,7 @@ def test_partial_file_keeps_defaults_and_ignores_unknown_keys(tmp_path: Path) ->
     path.write_text('[model]\nmain = "llama3.1:8b"\nnot_a_setting = 1\n')
     cfg = load_config(path)
     assert cfg.model.main == "llama3.1:8b"
-    assert cfg.model.num_ctx == 16384
+    assert cfg.model.num_ctx == 8192
     assert cfg.ui.terminal == "ptyxis"
 
 

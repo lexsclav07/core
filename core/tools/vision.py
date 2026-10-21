@@ -21,7 +21,9 @@ import httpx
 from PIL import Image
 
 MAX_PIXELS = 1_600_000
-VISION_CTX = 8192
+# Image (~1,700 tokens) + prompt + answer fits in 4k; a smaller context leaves
+# more VRAM for the model's layers when other apps are using the GPU.
+VISION_CTX = 4096
 # qwen3-vl always thinks first. With "think": false Ollama doesn't stop it:
 # it thinks for 2,000+ tokens (~100 s) and never answers. With thinking on it
 # thinks briefly, then answers in ~350 tokens total. The cap is a safety net.

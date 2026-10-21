@@ -21,8 +21,9 @@ main = "qwen3:8b"
 vision = "qwen3-vl:8b"
 # Speech to text for push-to-talk (Ctrl+T), on the CPU: tiny, base, small, medium.
 whisper = "small"
-# Context window in tokens. 16k fits on the 8 GB 3060 with Ollama's q8_0 KV cache.
-num_ctx = 16384
+# Context window in tokens. 8k keeps the model on the GPU even with Chrome and
+# Discord using ~1.4 GB of VRAM (16k pushed 15% of it onto the CPU: 25 vs 37 tok/s).
+num_ctx = 8192
 # qwen3 can "think" before answering. Off by default: in testing (evals/) it was
 # 10x slower and less reliable with thinking on (68% vs 88% of tasks done right).
 think = false
@@ -83,7 +84,7 @@ class ModelConfig:
     main: str = "qwen3:8b"
     vision: str = "qwen3-vl:8b"
     whisper: str = "small"
-    num_ctx: int = 16384
+    num_ctx: int = 8192
     think: bool = False
 
 
