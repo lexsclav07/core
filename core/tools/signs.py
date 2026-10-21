@@ -156,3 +156,16 @@ class Debouncer:
         self._candidate = None
         self._fired, self._fired_seen, self._last_fire = sign, now, now
         return sign
+
+    def progress(self, sign: str | None, now: float) -> float:
+        """How close `sign` (this frame's, after update) is to firing: 0 to 1.
+
+        1 means it has fired and is still being held. For the hold bar in the TUI.
+        """
+        if sign is None:
+            return 0.0
+        if sign == self._fired:
+            return 1.0
+        if sign != self._candidate or self.hold <= 0:
+            return 0.0
+        return min((now - self._since) / self.hold, 1.0)

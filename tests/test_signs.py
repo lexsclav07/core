@@ -155,3 +155,14 @@ def test_cooldown_between_different_signs() -> None:
 
 def test_no_hand_never_fires() -> None:
     assert run(frames(None, 0, 5)) == []
+
+
+def test_progress_fills_up_then_stays_full_while_held() -> None:
+    d = Debouncer(hold=0.6)
+    seen = []
+    for t, sign in [*frames("peace", 0, 1), (1.1, None)]:
+        d.update(sign, t)
+        seen.append(round(d.progress(sign, t), 2))
+    assert seen[:4] == [0.0, 0.17, 0.33, 0.5]  # building up to the hold time
+    assert seen[6:11] == [1.0] * 5  # fired at 0.6, still held
+    assert seen[-1] == 0.0  # hand gone

@@ -51,6 +51,7 @@ class FakeUI:
         self.views: list[dict[str, Any]] = []
         self.senses: list[tuple[str, bool]] = []
         self.signs: list[str | None] = []
+        self.progress: list[float] = []
 
     async def approve(self, command: str, a: Assessment, explanation: str, undo: str) -> bool:
         self.asked.append(command)
@@ -69,6 +70,9 @@ class FakeUI:
 
     def show_sign(self, sign: str | None) -> None:
         self.signs.append(sign)
+
+    def show_hand(self, hand: list[list[float]] | None, sign: str | None, progress: float) -> None:
+        self.progress.append(progress)
 
 
 @pytest.fixture(autouse=True)
@@ -263,6 +267,7 @@ async def test_a_held_sign_fires_its_macro_once(
     with pytest.raises(asyncio.CancelledError):
         await task
     assert fired == [armed["peace"]]
+    assert ui.progress[0] == 0 and ui.progress[6:30] == [1.0] * 24  # the hold bar
     assert ui.signs == ["peace", None, None]  # last one: cleared when it stopped
     assert ui.senses == [("gestures", True), ("gestures", False)]
     assert "watching /dev/video0" in ui.notes[0]

@@ -37,7 +37,12 @@ Goal for the GPU: use as much of the 3060 as possible for the main model. Pick t
 
 ```
 core/
-  app.py            # Textual app: logo splash, chat view, status bar
+  app.py            # Textual app: logo splash, theme, command palette
+  chat.py           # chat screen: messages, input (↑/↓ history), footer, AgentUI
+  status.py         # top status bar: model, VRAM, context gauge, senses, clock
+  welcome.py        # welcome panel (empty chat) and the F1 help screen
+  handview.py       # gesture mode: live braille drawing of the tracked hand
+  theme.tcss        # the look (Textual CSS); colours come from the GNOME accent
   widgets.py        # approval dialog, masked password field, inline command blocks
   agent/
     loop.py         # tool-calling loop against Ollama's /api/chat
@@ -136,7 +141,7 @@ All credentials live in GNOME Keyring. Each integration can be switched on or of
 
 - Don't invent mascot art. Build the splash so it reads any multi-line text file (and optional extra frames for animation) from `core/logo/`.
 - Colours come from a theme in config. Default to one accent colour that matches the GNOME accent if it can be read through `gsettings`.
-- TUI layout: chat in the middle, a collapsible command and output panel, a status bar (model loaded, VRAM use, active senses, local or remote session), and confirmation modals for the confirm tier.
+- TUI layout: a status bar along the top (model loaded, VRAM use, context used, active senses, local or remote session, clock), chat in the middle with collapsible command blocks, the input box, and a footer that only shows the keys that work right now. Confirmation modals for the confirm tier. Status colours (green, yellow, red) are libadwaita's, set explicitly: a Textual theme given only an accent derives them from it, which would turn the red "sense is on" dot into the accent colour.
 
 ## Example behaviour to aim for
 

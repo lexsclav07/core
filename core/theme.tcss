@@ -1,0 +1,76 @@
+/* CORE's look, in Textual CSS (https://textual.textualize.io/guide/CSS/).
+ *
+ * Colours come from the theme: $primary is your GNOME accent colour (or
+ * [ui] accent in config.toml), and $accent, $success, $warning, $error,
+ * $boost and $panel are worked out from it. Rice away: restart CORE to see
+ * changes, or run `uv run textual run --dev core.app:CoreApp` to see them live.
+ */
+
+/* Splash */
+SplashScreen { align: center middle; }
+#logo { width: 100%; content-align: center middle; text-style: bold; color: $primary; }
+#splash-status { width: 100%; content-align: center middle; color: $text-muted; margin-top: 1; }
+
+/* Status bar along the top, keys along the bottom */
+#status { dock: top; height: 1; background: $panel; color: $foreground; }
+/* Widgets docked to the same edge overlap, so the input stands one row above the footer. */
+#prompt { dock: bottom; margin: 0 1 1 1; border: round $primary 40%; background: $background; }
+#prompt:focus { border: round $primary; }
+
+/* The conversation */
+#messages { padding: 0 2; scrollbar-size-vertical: 1; }
+#welcome {
+    width: auto; max-width: 100%; height: auto;
+    margin: 1 0; padding: 1 3;
+    border: round $primary 50%;
+}
+.who { height: 1; margin: 1 0 0 0; }
+.user { padding: 0 1; border-left: thick $primary; background: $boost; }
+.assistant { margin: 0; padding: 0 1; }
+.reply-meta { height: 1; color: $text-muted; text-style: italic; }
+.pending { height: 1; width: 8; color: $primary; }
+
+/* Thinking: a quiet one-liner you can open, not a big box. */
+Collapsible { margin: 0; padding: 0; border: none; background: transparent; }
+Collapsible CollapsibleTitle { padding: 0 1; color: $text-muted; text-style: italic; }
+Collapsible Contents { padding: 0 0 0 3; }
+.thinking { color: $text-muted; }
+
+/* Commands, inline in the chat */
+.command { height: auto; margin: 0 0 1 0; padding: 0 1; background: $boost; }
+.command-output { color: $text-muted; padding: 0 0 0 2; }
+
+/* Gesture mode: a live drawing of your hand on the right */
+HandView {
+    dock: right; display: none;
+    width: 30; height: auto; margin: 1 1 0 0; padding: 0 1;
+    border: round $primary; border-title-color: $primary;
+}
+HandView.-on { display: block; }
+
+/* Dialogs */
+ApprovalModal, PasswordModal, HelpScreen { align: center middle; }
+#approval {
+    width: 80%; max-width: 100; height: auto; padding: 1 2;
+    border: round $warning; background: $surface;
+    border-title-color: $warning; border-title-style: bold;
+    border-subtitle-color: $text-muted;
+}
+#password {
+    width: 80%; max-width: 100; height: auto; padding: 1 2;
+    border: round $primary; background: $surface;
+}
+#help {
+    width: 90; max-width: 95%; height: auto; max-height: 90%; padding: 1 2;
+    border: round $primary; background: $surface;
+}
+.modal-title { text-style: bold; color: $primary; margin-bottom: 1; }
+.modal-command { padding: 0 1; background: $boost; }
+.facts {
+    layout: grid; grid-size: 2; grid-columns: 17 1fr; grid-rows: auto;
+    grid-gutter: 1 0; height: auto; margin: 1 0;
+}
+.fact-name { text-style: bold; color: $text-muted; }
+.modal-buttons { height: auto; align-horizontal: right; margin-top: 1; }
+.modal-buttons Button { margin-left: 2; }
+.note { color: $text-muted; }

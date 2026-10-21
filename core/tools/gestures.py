@@ -48,6 +48,9 @@ class GestureUI(macros.MacroUI, Protocol):
     def show_sign(self, sign: str | None) -> None:
         """Show the sign CORE sees right now (None = no sign) in the status bar."""
 
+    def show_hand(self, hand: list[list[float]] | None, sign: str | None, progress: float) -> None:
+        """Every frame: the hand points, its sign, and how close that is to firing."""
+
 
 class GestureError(Exception):
     pass
@@ -120,6 +123,7 @@ async def watch(
                 shown = sign
                 ui.show_sign(sign)
             fired = debouncer.update(sign, now)
+            ui.show_hand(msg.get("hand"), sign, debouncer.progress(sign, now))
             if fired is not None and fired in armed:
                 await macros.fire(ui, armed[fired], session)
             if now >= off_at:

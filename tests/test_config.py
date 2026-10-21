@@ -28,3 +28,11 @@ def test_configured_accent_wins() -> None:
 def test_accent_falls_back_without_gsettings(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("PATH", "")
     assert resolve_accent("") == FALLBACK_ACCENT
+
+
+def test_light_or_dark(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from core.config import resolve_dark
+
+    assert resolve_dark("dark") and not resolve_dark("light")
+    monkeypatch.setenv("PATH", "")  # no gsettings: CORE can't ask GNOME
+    assert resolve_dark("auto")

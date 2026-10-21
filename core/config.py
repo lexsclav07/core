@@ -35,6 +35,8 @@ url = "http://127.0.0.1:11434"
 terminal = "ptyxis"
 # Leave empty to follow the GNOME accent colour.
 accent = ""
+# "auto" follows GNOME's light/dark style (Settings → Appearance), or "dark" / "light".
+mode = "auto"
 
 # Gesture mode: hand signs in front of the webcam run your macros. Ctrl+G turns
 # it on and off (only you can, not the model). The webcam light stays on while
@@ -97,6 +99,7 @@ class OllamaConfig:
 class UIConfig:
     terminal: str = "ptyxis"
     accent: str = ""
+    mode: str = "auto"
 
 
 def _default_macros() -> dict[str, object]:
@@ -161,15 +164,26 @@ def resolve_accent(configured: str) -> str:
     """Return the accent colour: the config value, else GNOME's, else blue."""
     if configured:
         return configured
+    return GNOME_ACCENTS.get(_gnome_setting("accent-color"), FALLBACK_ACCENT)
+
+
+def resolve_dark(mode: str) -> bool:
+    """Dark or light. "auto" asks GNOME; if it can't tell, dark."""
+    if mode in ("dark", "light"):
+        return mode == "dark"
+    # GNOME's "default" means the app picks; for a terminal app that's dark.
+    return _gnome_setting("color-scheme") != "prefer-light"
+
+
+def _gnome_setting(key: str) -> str:
     try:
         out = subprocess.run(
-            ["gsettings", "get", "org.gnome.desktop.interface", "accent-color"],
+            ["gsettings", "get", "org.gnome.desktop.interface", key],
             capture_output=True,
             text=True,
             timeout=2,
             check=True,
         ).stdout
     except (OSError, subprocess.SubprocessError):
-        return FALLBACK_ACCENT
-    # gsettings prints the value quoted, e.g. 'purple'
-    return GNOME_ACCENTS.get(out.strip().strip("'"), FALLBACK_ACCENT)
+        return ""
+    return out.strip().strip("'")  # gsettings prints strings quoted, e.g. 'purple'

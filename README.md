@@ -23,9 +23,38 @@ uv run core
 
 The first run writes `~/.config/core/config.toml` with the defaults.
 
-Keys: Enter sends, Ctrl+C (or Esc) stops the running command, then the reply.
-Ctrl+O expands the latest command's output, Ctrl+Q quits. While a command is
+| Key | |
+|---|---|
+| Enter | send (click a suggestion on the welcome panel to fill the box first) |
+| ↑ / ↓ | bring back earlier messages |
+| Ctrl+C / Esc | stop the running command, then the reply |
+| Ctrl+O | expand the latest command's output (or click it) |
+| Ctrl+T | push-to-talk |
+| Ctrl+G | gesture mode |
+| Ctrl+L | new chat: CORE forgets this one and frees its memory |
+| F1 | help |
+| Ctrl+P | every command, plus Textual's theme picker |
+| Ctrl+Q | quit |
+
+The footer only shows the keys that do something right now. While a command is
 running, whatever you type goes to that command (e.g. to answer `[y/N]`).
+
+The bar along the top shows the model (green dot: fully on the GPU; yellow: part
+of it spilled into system RAM, so it's slower), VRAM use, and **ctx**: how much
+of the chat CORE can still keep in mind. When ctx turns red, the oldest messages
+are falling out of its memory, so press Ctrl+L. Red dots mean a sense is on.
+Under each reply is how long it took and how fast the model wrote (tok/s).
+
+### Ricing the TUI
+
+The colours follow GNOME: your accent colour (Settings → Appearance) and its
+light/dark style. Set `accent = "#hex"` or `mode = "dark"`/`"light"` under `[ui]`
+to override them. Everything else about the look is in `core/theme.tcss`
+(Textual CSS). To see your edits live:
+
+```sh
+uv run textual run --dev core.app:CoreApp
+```
 
 ## Senses
 

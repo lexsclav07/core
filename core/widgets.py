@@ -7,11 +7,12 @@ instead of being read as Textual styling.
 
 from __future__ import annotations
 
+from rich.syntax import Syntax
 from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Grid, Horizontal, Vertical
 from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Static
@@ -21,6 +22,16 @@ from core.tools.pty_runner import CommandResult, RunningCommand, clean_output
 
 PREVIEW_LINES = 12  # output lines shown while a block is collapsed
 MAX_LINES = 2000  # lines shown when expanded
+
+
+def highlight(command: str) -> Text:
+    """The command in bash colours. Only the colours change, never the text.
+
+    "ansi_dark" uses the terminal's own palette, so it follows Lex's theme.
+    """
+    text = Syntax("", "bash", theme="ansi_dark").highlight(command)
+    text.rstrip()
+    return text
 
 
 class ApprovalModal(ModalScreen[bool]):
@@ -42,12 +53,19 @@ class ApprovalModal(ModalScreen[bool]):
         self.remote = remote
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="approval"):
-            yield Static("CORE wants to run", classes="modal-title")
-            yield Static(Text(f"$ {self.command}"), classes="modal-command")
-            yield Static(Text.assemble(("Why it's asking  ", "bold"), self.assessment.reason))
-            yield Static(Text.assemble(("What it does     ", "bold"), self.explanation))
-            yield Static(Text.assemble(("How to undo      ", "bold"), self.undo))
+        with Vertical(id="approval") as box:
+            box.border_title = "⚠ CORE wants to run"
+            box.border_subtitle = "y / n"
+            yield Static(Text.assemble(("$ ", "dim"), highlight(self.command)),
+                         classes="modal-command")  # fmt: skip
+            with Grid(classes="facts"):
+                for name, value in [
+                    ("Why it's asking", self.assessment.reason),
+                    ("What it does", self.explanation),
+                    ("How to undo", self.undo),
+                ]:
+                    yield Static(name, classes="fact-name")
+                    yield Static(Text(value))
             if self.remote:
                 yield Static("You're connected remotely: this runs on the PC.", classes="note")
             with Horizontal(classes="modal-buttons"):
@@ -113,6 +131,7 @@ class CommandBlock(Vertical):
         # Confirm-tier commands wait for Lex; nothing runs until attach().
         self.status = "waiting" if assessment.tier == Tier.CONFIRM and not trigger else "running"
         self.approved = approved
+        self.duration: float | None = None
         self.expanded = False
         self.running: RunningCommand | None = None
         self._render_pending = False
@@ -146,6 +165,7 @@ class CommandBlock(Vertical):
         self.running = None
         if result is not None:
             self.raw = result.output
+            self.duration = result.duration_s
         if self.is_mounted:
             self.query_one(".command-header", Static).update(self._header())
             self._render_output()
@@ -171,7 +191,11 @@ class CommandBlock(Vertical):
             "launched": ("✓ started", "green"),
             "exit 0": ("✓", "green"),
         }.get(self.status, (f"✗ {self.status}", "red"))
-        header = Text.assemble(("$ ", "dim"), (self.command, "bold"), "  ", (badge, style))
+        if self.duration is not None and self.duration >= 0.1:
+            badge += f" {self.duration:.1f}s"
+        command = highlight(self.command)
+        command.stylize("bold")
+        header = Text.assemble(("$ ", "dim"), command, "  ", (badge, style))
         if self.trigger:
             header = Text.assemble((self.trigger, "bold"), "  ", header)
         if self.status == "blocked":
