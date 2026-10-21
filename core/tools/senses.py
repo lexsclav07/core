@@ -51,10 +51,10 @@ def _active(ctx: ToolContext, sense: str, message: str) -> Iterator[None]:
         ctx.ui.sense(sense, False)
 
 
-def notify_desktop(message: str) -> None:
+def notify_desktop(message: str, icon: str = "camera-web") -> None:
     with contextlib.suppress(OSError):
         subprocess.Popen(  # fire and forget; a missing notification isn't fatal
-            ["notify-send", "--app-name=CORE", "--icon=camera-web", "CORE", message],
+            ["notify-send", "--app-name=CORE", f"--icon={icon}", "CORE", message],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

@@ -42,6 +42,7 @@ from core.status import Snapshot, render, session_kind, vram_usage
 from core.tools import gestures
 from core.tools.mic import MicError, Recorder, transcribe
 from core.tools.pty_runner import RunningCommand
+from core.tools.senses import notify_desktop
 from core.welcome import SUGGESTIONS, HelpScreen, Welcome
 from core.widgets import ApprovalModal, CommandBlock, PasswordModal
 
@@ -55,6 +56,7 @@ PROMPT_REPLYING = "CORE is replying… Ctrl+C stops it"
 PROMPT_RUNNING = "A command is running: type here to answer it, Ctrl+C stops it"
 PROMPT_RECORDING = "● Recording… press Ctrl+T or Enter to stop"
 PROMPT_TRANSCRIBING = "Transcribing…"
+LONG_REPLY_S = 10  # a reply this slow gets a desktop notification if Lex looked away
 
 
 def turn_summary(seconds: float, tokens: int, writing_s: float) -> str:
@@ -311,7 +313,10 @@ class ChatScreen(Screen[None]):
         finally:
             await reply.close()
             self.reply = None
-            summary = turn_summary(time.monotonic() - started, tokens, writing_s)
+            took = time.monotonic() - started
+            if took >= LONG_REPLY_S:
+                self._tap_shoulder(f"Done ({took:.0f}s). The reply is in the terminal.")
+            summary = turn_summary(took, tokens, writing_s)
             await messages.mount(Static(summary, classes="reply-meta"))
             self._update_context()
 
@@ -449,6 +454,7 @@ class ChatScreen(Screen[None]):
     ) -> bool:
         if self.reply:
             self.reply.drop_pending()
+        self._tap_shoulder(f"Needs your y/n to run: {command[:80]}", icon="dialog-question")
         remote = session_kind() == "remote"
         modal = ApprovalModal(command, assessment, explanation, undo, remote)
         return bool(await self._wait_for(modal))
@@ -500,6 +506,15 @@ class ChatScreen(Screen[None]):
         await self.messages.mount(block)
         self.messages.scroll_end(animate=False)
         return block
+
+    def _tap_shoulder(self, message: str, icon: str = "utilities-terminal") -> None:
+        """A GNOME notification, but only if Lex is in another window at the PC.
+
+        app_focus comes from the terminal's focus reports; terminals that don't
+        send them leave it True, so they never get notifications.
+        """
+        if not self.app.app_focus and session_kind() == "local":
+            notify_desktop(message, icon=icon)
 
     async def _wait_for(self, modal: ModalScreen[Any]) -> Any:
         """Show a dialog and wait for its answer; close it if the reply is cancelled."""

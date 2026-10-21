@@ -222,3 +222,27 @@ async def test_help_opens_and_closes(app: CoreApp) -> None:
         assert type(app.screen).__name__ == "HelpScreen"
         await pilot.press("escape")
         assert isinstance(app.screen, ChatScreen)
+
+
+async def test_desktop_nudge_only_when_lex_looked_away(
+    app: CoreApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import core.chat
+    from core.agent.risk import Assessment, Tier
+
+    sent: list[str] = []
+    monkeypatch.setattr(core.chat, "notify_desktop", lambda message, icon="": sent.append(message))
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("escape")
+        chat = app.screen
+        assert isinstance(chat, ChatScreen)
+        confirm = Assessment(Tier.CONFIRM, "runs as root (sudo)")
+        for focused in (True, False):
+            app.app_focus = focused
+            # Dialogs need a Textual worker, like the reply worker in real use.
+            asking = chat.run_worker(chat.approve("sudo dnf install -y htop", confirm, "", ""))
+            await pilot.pause(0.1)
+            await pilot.press("n")
+            await asking.wait()
+            assert asking.result is False
+        assert sent == ["Needs your y/n to run: sudo dnf install -y htop"]  # only the 2nd

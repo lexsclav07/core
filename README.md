@@ -45,6 +45,9 @@ of the chat CORE can still keep in mind. When ctx turns red, the oldest messages
 are falling out of its memory, so press Ctrl+L. Red dots mean a sense is on.
 Under each reply is how long it took and how fast the model wrote (tok/s).
 
+If you're in another window, CORE sends a GNOME notification when it needs a
+y/n, or when a reply that took over 10 seconds is ready.
+
 ### Ricing the TUI
 
 The colours follow GNOME: your accent colour (Settings → Appearance) and its
