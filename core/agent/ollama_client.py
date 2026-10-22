@@ -7,7 +7,7 @@ easier to debug.
 Streaming: /api/chat returns one JSON object per line (NDJSON). Each line has a
 piece of the reply in message.content (and message.thinking when thinking is
 on). Tool calls arrive whole, in message.tool_calls. The last line has
-"done": true.
+"done": true, plus token counts and timings that we pass on as a "stats" chunk.
 """
 
 from __future__ import annotations
@@ -29,6 +29,19 @@ class ToolCall:
 
 
 @dataclass(frozen=True)
+class Stats:
+    """From the last line of a reply. Ollama reports times in nanoseconds."""
+
+    prompt_tokens: int  # tokens it read (may leave out ones it had cached)
+    reply_tokens: int
+    reply_seconds: float  # time spent writing the reply, not reading the prompt
+
+    @property
+    def tokens_per_second(self) -> float:
+        return self.reply_tokens / self.reply_seconds if self.reply_seconds > 0 else 0.0
+
+
+@dataclass(frozen=True)
 class Chunk:
     """One streamed piece of a reply.
 
@@ -36,11 +49,13 @@ class Chunk:
     break: tools ran, so the TUI starts a fresh text block below their output.
     retract: the reply so far handed Lex commands instead of running them, so
     the TUI removes it while the model tries again.
+    stats: the reply is finished; `stats` says how big and how fast it was.
     """
 
-    kind: Literal["thinking", "content", "tool_call", "break", "retract"]
+    kind: Literal["thinking", "content", "tool_call", "break", "retract", "stats"]
     text: str = ""
     call: ToolCall | None = None
+    stats: Stats | None = None
 
 
 @dataclass(frozen=True)
@@ -126,6 +141,8 @@ class OllamaClient:
                             args = _json_or_empty(args)
                         yield Chunk("tool_call", call=ToolCall(fn.get("name", ""), args))
                     if data.get("done"):
+                        if "eval_count" in data:
+                            yield Chunk("stats", stats=_stats(data))
                         return
         except httpx.HTTPError as e:
             raise OllamaError(f"can't reach Ollama: {e}") from e
@@ -139,6 +156,14 @@ class OllamaClient:
             raise OllamaError(_error_text(resp))
         result: dict[str, Any] = resp.json()
         return result
+
+
+def _stats(data: dict[str, Any]) -> Stats:
+    return Stats(
+        int(data.get("prompt_eval_count", 0)),
+        int(data.get("eval_count", 0)),
+        int(data.get("eval_duration", 0)) / 1e9,
+    )
 
 
 def _json_or_empty(text: str) -> dict[str, Any]:

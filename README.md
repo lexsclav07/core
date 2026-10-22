@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="CORE logo" width="240">
+</p>
+
 # CORE
 
 A local AI assistant for Fedora that lives in the terminal. See `CLAUDE.md` for the full design.
@@ -23,9 +27,55 @@ uv run core
 
 The first run writes `~/.config/core/config.toml` with the defaults.
 
-Keys: Enter sends, Ctrl+C (or Esc) stops the running command, then the reply.
-Ctrl+O expands the latest command's output, Ctrl+Q quits. While a command is
+| Key | |
+|---|---|
+| Enter | send (click a suggestion on the welcome panel to fill the box first) |
+| ↑ / ↓ | bring back earlier messages |
+| Ctrl+C / Esc | stop the running command, then the reply |
+| Ctrl+O | expand the latest command's output (or click it) |
+| Ctrl+T | push-to-talk |
+| Ctrl+G | gesture mode |
+| Ctrl+L | new chat: CORE forgets this one and frees its memory |
+| F1 | help |
+| Ctrl+P | every command, plus Textual's theme picker |
+| Ctrl+Q | quit |
+
+The footer only shows the keys that do something right now. While a command is
 running, whatever you type goes to that command (e.g. to answer `[y/N]`).
+
+The bar along the top shows the model (green dot: fully on the GPU; yellow: part
+of it spilled into system RAM, so it's slower), VRAM use, and **ctx**: how much
+of the chat CORE can still keep in mind. When ctx turns red, the oldest messages
+are falling out of its memory, so press Ctrl+L. Red dots mean a sense is on.
+Under each reply is how long it took and how fast the model wrote (tok/s).
+
+If you're in another window, CORE sends a GNOME notification when it needs a
+y/n, or when a reply that took over 10 seconds is ready.
+
+### The logo
+
+`docs/logo.png` is the logo. The splash screen and welcome panel show it as
+block characters, made from the image (40 and 20 characters wide):
+
+```sh
+uv run python -m core.logo.from_image docs/logo.png --width 40 > core/logo/logo.txt
+uv run python -m core.logo.from_image docs/logo.png --width 20 > core/logo/small.txt
+```
+
+Change the image and run those again; CORE picks up the new files on its next
+start. Extra `core/logo/frame_01.txt`, `frame_02.txt`, … play as a splash
+animation.
+
+### Ricing the TUI
+
+The colours follow GNOME: your accent colour (Settings → Appearance) and its
+light/dark style. Set `accent = "#hex"` or `mode = "dark"`/`"light"` under `[ui]`
+to override them. Everything else about the look is in `core/theme.tcss`
+(Textual CSS). To see your edits live:
+
+```sh
+uv run textual run --dev core.app:CoreApp
+```
 
 ## Senses
 
@@ -42,6 +92,47 @@ All off until you ask, shown in red in the status bar while on.
 
 The vision model and the chat model don't both fit in 8 GB, so the first look
 takes a few seconds while Ollama swaps them.
+
+## Hand signs (gesture mode)
+
+Press **Ctrl+G** and CORE watches the webcam for hand signs. Each sign runs a
+macro, a command you set in `~/.config/core/config.toml`. Out of the box,
+✌ peace opens a new terminal window. Press Ctrl+G again to turn it off. It
+also turns itself off after an hour (`auto_off`).
+
+```toml
+[gestures.macros]
+peace = "{terminal} --new-window"      # {terminal} is the one in [ui]
+thumbs_up = "playerctl play-pause"
+fist = "loginctl lock-session"
+gun = "flatpak run org.mozilla.firefox"
+
+[gestures.shapes]                      # your own signs: the fingers that are up
+gun = "thumb index"
+```
+
+Signs: ✋ `open_palm`, ✊ `fist`, ✌ `peace`, ☝ `point`, 👍 `thumbs_up`,
+👎 `thumbs_down`, 🤘 `rock`, 🤙 `call_me`, `three`, plus your own shapes.
+Hold a sign for about half a second and it fires once. To fire it again, drop
+your hand and make the sign again. The status bar shows the sign CORE sees
+right now, which helps when a sign isn't being picked up. After editing the
+config, press Ctrl+G twice; you don't need to restart CORE.
+
+- **Safety**: macros go through the same checks as every other command.
+  Macros that change something (opening an app counts) get one y/n each when
+  gesture mode turns on, and after that they run as soon as you make the sign.
+  Blocked commands are refused, and so are `sudo` macros, because there's no
+  terminal for the password. Every run shows in the chat and goes in the audit log.
+- **Privacy**: tracking runs on the CPU in a separate process
+  (`core/tools/hand_worker.py`), and frames are never saved or sent anywhere.
+  The first time, CORE downloads MediaPipe's hand model (7.8 MB) and checks
+  it against a fixed SHA-256.
+- **Only at the PC**: CORE refuses gesture mode over SSH, because whoever is in
+  front of the PC's webcam would be the one making the signs.
+- **One app at a time**: the webcam is busy while gesture mode is on, so turn
+  it off before asking "what's on my webcam".
+- **No webcam to test with?** Set `camera = "some-video.mp4"` under
+  `[gestures]` and it reads the video instead.
 
 ## Safety
 

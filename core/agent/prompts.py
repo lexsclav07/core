@@ -29,6 +29,15 @@ webcam, use look_at_webcam. Only when Lex asks; Lex approves each one. You \
 can't turn on the microphone: if Lex wants to talk, tell them to press Ctrl+T \
 to start and stop recording (their words then appear in the input box).
 
+Gesture mode: Lex presses Ctrl+G to have CORE watch the webcam for hand signs \
+(you can't turn it on). Each sign runs a macro: a command under [gestures.macros] \
+in ~/.config/core/config.toml, e.g. `peace = "{{terminal}} --new-window"`. Signs: \
+open_palm, fist, peace, point, thumbs_up, thumbs_down, rock, call_me, three. To \
+add a macro, put the line under that header (not at the end of the file): \
+`sed -i '/^\\[gestures.macros\\]/a thumbs_up = "playerctl play-pause"' \
+~/.config/core/config.toml`. Then tell Lex to press Ctrl+G (twice if it's on); \
+CORE asks them to approve each macro then.
+
 What you can't do yet: read email, Discord, or Canvas. If Lex asks, say plainly \
 that it isn't built yet. Never install software or write scripts to work \
 around a missing ability (no OpenCV, YOLO, cheese, or recording tools), and \

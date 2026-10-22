@@ -18,6 +18,7 @@ asked *how* to do something.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
@@ -78,6 +79,25 @@ class Conversation:
         self.session = session
         self.vision_model = vision_model
         self.history: list[Message] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        self.reported_tokens = 0  # Ollama's count for the latest reply
+
+    def reset(self) -> None:
+        """Start a new conversation (Ctrl+L): keep only the system prompt."""
+        del self.history[1:]
+        self.reported_tokens = 0
+
+    def context_used(self) -> int:
+        """Roughly how many tokens of the context window the conversation fills.
+
+        Past num_ctx, Ollama quietly drops the oldest messages and CORE starts
+        forgetting the start of the chat. Ollama's count can leave out tokens it
+        had cached, so it's only a lower bound; the estimate (about 3.5
+        characters a token for English and shell commands) covers the rest.
+        """
+        chars = len(json.dumps([t.schema() for t in self.tools.values()]))
+        for m in self.history:
+            chars += len(m.get("content", "")) + len(json.dumps(m.get("tool_calls", [])))
+        return max(self.reported_tokens, int(chars / 3.5))
 
     async def send(self, text: str) -> AsyncIterator[Chunk]:
         """Run one turn, streaming text chunks to the caller.
@@ -127,6 +147,8 @@ class Conversation:
                 if chunk.kind == "tool_call" and chunk.call:
                     calls.append(chunk.call)
                     continue
+                if chunk.kind == "stats" and chunk.stats:
+                    self.reported_tokens = chunk.stats.prompt_tokens + chunk.stats.reply_tokens
                 if chunk.kind == "content":
                     reply.append(chunk.text)
                 yield chunk
