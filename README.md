@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="CORE logo" width="240">
+</p>
+
 # CORE
 
 A local AI assistant for Fedora that lives in the terminal. See `CLAUDE.md` for the full design.
