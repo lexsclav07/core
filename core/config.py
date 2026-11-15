@@ -6,7 +6,9 @@ Secrets never go here; they live in GNOME Keyring (see CLAUDE.md).
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import subprocess
 import tomllib
 from dataclasses import dataclass, field
@@ -37,6 +39,11 @@ terminal = "ptyxis"
 accent = ""
 # "auto" follows GNOME's light/dark style (Settings → Appearance), or "dark" / "light".
 mode = "auto"
+
+[history]
+# Save chats to ~/.local/share/core/history.db so the History tab (F3) can
+# reopen them. Only on this PC; set to false to keep nothing.
+save = true
 
 # Gesture mode: hand signs in front of the webcam run your macros. Ctrl+G turns
 # it on and off (only you can, not the model). The webcam light stays on while
@@ -102,6 +109,11 @@ class UIConfig:
     mode: str = "auto"
 
 
+@dataclass(frozen=True)
+class HistoryConfig:
+    save: bool = True
+
+
 def _default_macros() -> dict[str, object]:
     return {"peace": "{terminal} --new-window"}
 
@@ -125,6 +137,7 @@ class Config:
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     ui: UIConfig = field(default_factory=UIConfig)
     gestures: GestureConfig = field(default_factory=GestureConfig)
+    history: HistoryConfig = field(default_factory=HistoryConfig)
 
 
 def config_path() -> Path:
@@ -152,7 +165,59 @@ def load_config(path: Path | None = None) -> Config:
         ollama=_section(OllamaConfig, data.get("ollama", {})),
         ui=_section(UIConfig, data.get("ui", {})),
         gestures=_section(GestureConfig, data.get("gestures", {})),
+        history=_section(HistoryConfig, data.get("history", {})),
     )
+
+
+def save_setting(
+    section: str, key: str, value: str | bool | int | float, path: Path | None = None
+) -> None:
+    """Change one setting in config.toml (for the Settings tab), keeping comments.
+
+    The edit is checked by reading the file back: if the new value doesn't come
+    out exactly, or anything else changed, nothing is written (ValueError).
+    Only simple top-level sections like [model] and [ui], not [gestures.macros].
+    """
+    if not re.fullmatch(r"\w+", section) or not re.fullmatch(r"\w+", key):
+        raise ValueError(f"can't save [{section}] {key} from the Settings tab")
+    path = path or config_path()
+    if not path.exists():
+        load_config(path)  # writes the default file first
+    old_text = path.read_text()
+    new_text = _with_line(old_text, section, key, _toml_value(value))
+    expected = tomllib.loads(old_text)
+    expected.setdefault(section, {})[key] = value
+    if tomllib.loads(new_text) != expected:  # TOMLDecodeError is a ValueError too
+        raise ValueError(f"couldn't safely change [{section}] {key} in {path}")
+    partial = path.with_suffix(".toml.part")
+    partial.write_text(new_text)
+    partial.replace(path)  # atomic: never a half-written config
+
+
+def _toml_value(value: str | bool | int | float) -> str:
+    if isinstance(value, bool):  # before int: True is an int too
+        return "true" if value else "false"
+    if isinstance(value, int | float):
+        return repr(value)
+    return json.dumps(value, ensure_ascii=False)  # a JSON string is a valid TOML string
+
+
+def _with_line(text: str, section: str, key: str, value: str) -> str:
+    """`key = value` set in [section]: replaced in place, else added under the header."""
+    lines = text.splitlines()
+    header = next((i for i, line in enumerate(lines) if line.strip() == f"[{section}]"), None)
+    if header is None:
+        return text.rstrip("\n") + f"\n\n[{section}]\n{key} = {value}\n"
+    end = next((i for i in range(header + 1, len(lines)) if lines[i].lstrip().startswith("[")),
+               len(lines))  # fmt: skip
+    setting = re.compile(rf"^\s*{re.escape(key)}\s*=")
+    for i in range(header + 1, end):
+        if setting.match(lines[i]):
+            lines[i] = f"{key} = {value}"
+            break
+    else:
+        lines.insert(header + 1, f"{key} = {value}")
+    return "\n".join(lines) + "\n"
 
 
 def _section[T](cls: type[T], values: dict[str, object]) -> T:
