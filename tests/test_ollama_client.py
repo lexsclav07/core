@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from core.agent.loop import Conversation
-from core.agent.ollama_client import Chunk, OllamaClient, OllamaError, Stats
+from core.agent.ollama_client import Chunk, InstalledModel, OllamaClient, OllamaError, Stats
 
 
 def ndjson(*objs: dict[str, object]) -> bytes:
@@ -113,3 +113,16 @@ async def test_failed_turn_is_dropped_from_history() -> None:
     with pytest.raises(OllamaError):
         [c async for c in convo.send("hello")]
     assert [m["role"] for m in convo.history] == ["system"]
+
+
+async def test_installed_models() -> None:
+    tags = {"models": [
+        {"name": "qwen3:8b", "size": 5_200_000_000,
+         "details": {"parameter_size": "8.2B", "quantization_level": "Q4_K_M"}},
+        {"name": "qwen3-vl:8b", "size": 6_100_000_000},
+    ]}  # fmt: skip
+    client = fake_ollama(lambda r: httpx.Response(200, json=tags))
+    assert await client.installed_models() == [
+        InstalledModel("qwen3-vl:8b", 6_100_000_000, "", ""),
+        InstalledModel("qwen3:8b", 5_200_000_000, "8.2B", "Q4_K_M"),
+    ]

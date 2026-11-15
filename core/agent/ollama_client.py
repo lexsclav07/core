@@ -71,6 +71,16 @@ class LoadedModel:
         return self.size_vram >= self.size
 
 
+@dataclass(frozen=True)
+class InstalledModel:
+    """A model that's been pulled (from /api/tags), loaded or not."""
+
+    name: str
+    size: int  # bytes on disk, about what it needs in VRAM before the context
+    parameters: str  # e.g. "8.2B"
+    quantization: str  # e.g. "Q4_K_M"
+
+
 class OllamaError(Exception):
     """Ollama is unreachable or returned an error."""
 
@@ -98,6 +108,18 @@ class OllamaClient:
             LoadedModel(m["name"], int(m.get("size_vram", 0)), int(m.get("size", 0)))
             for m in data.get("models", [])
         ]
+
+    async def installed_models(self) -> list[InstalledModel]:
+        """Every model pulled onto this PC, for the Settings tab's model picker."""
+        data = await self._get("/api/tags")
+        models = []
+        for m in data.get("models", []):
+            details = m.get("details") or {}
+            models.append(InstalledModel(
+                m["name"], int(m.get("size", 0)),
+                str(details.get("parameter_size", "")), str(details.get("quantization_level", "")),
+            ))  # fmt: skip
+        return sorted(models, key=lambda m: m.name)
 
     async def chat(
         self,
