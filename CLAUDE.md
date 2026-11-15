@@ -29,7 +29,7 @@ The model runs entirely on the local GPU. The only things that use the network a
 | Hand tracking (gesture mode) | MediaPipe Hand Landmarker, on CPU, in its own process |
 | Secrets | GNOME Keyring through the `keyring` package. Never plain files. |
 | Config | `~/.config/core/config.toml` |
-| State and logs | `~/.local/share/core/` (SQLite for history, the audit log, and the Canvas cache) |
+| State and logs | `~/.local/share/core/` (SQLite for chat history in `history.db`, the audit log, and the Canvas cache) |
 
 Goal for the GPU: use as much of the 3060 as possible for the main model. Pick the quant and context length so the model plus KV cache sits near 6 GB: Chrome, Discord and GNOME can take ~1.4 GB of VRAM, so CORE uses an 8k context (16k pushed part of the model onto the CPU), and keep the rest of the pipeline off the GPU unless it needs it.
 
@@ -38,7 +38,9 @@ Goal for the GPU: use as much of the 3060 as possible for the main model. Pick t
 ```
 core/
   app.py            # Textual app: logo splash, theme, command palette
-  chat.py           # chat screen: messages, input (↑/↓ history), footer, AgentUI
+  chat.py           # main screen: tabs (F2–F5), chat, input (↑/↓ history), footer, AgentUI
+  history.py        # saved chats in SQLite (history.db), replaying one on screen
+  panels/           # the other tabs: history.py (F3), activity.py (F4), settings.py (F5)
   status.py         # top status bar: model, VRAM, context gauge, senses, clock
   welcome.py        # welcome panel (empty chat) and the F1 help screen
   handview.py       # gesture mode: live braille drawing of the tracked hand
@@ -136,7 +138,7 @@ All credentials live in GNOME Keyring. Each integration can be switched on or of
 - **Logo: Lex's design.** The letters C O / R E as chunky blocks in a 2×2 square, in the style of Supercell's logo. The image is `docs/logo.png` (shown at the top of the README). The terminal versions are block-character text made from it by `core/logo/from_image.py`: `core/logo/logo.txt` (splash, 40 wide) and `core/logo/small.txt` (welcome panel, 20 wide, hidden in windows under 32 rows). Regenerate them from the image rather than hand-editing; a test checks `logo.txt` still matches the image.
 - Don't invent mascot art. The splash reads any multi-line text file (and optional `frame_*.txt` frames for animation) from `core/logo/`.
 - Colours come from a theme in config. Default to one accent colour that matches the GNOME accent if it can be read through `gsettings`.
-- TUI layout: a status bar along the top (model loaded, VRAM use, context used, active senses, local or remote session, clock), chat in the middle with collapsible command blocks, the input box, and a footer that only shows the keys that work right now. Confirmation modals for the confirm tier. Status colours (green, yellow, red) are libadwaita's, set explicitly: a Textual theme given only an accent derives them from it, which would turn the red "sense is on" dot into the accent colour.
+- TUI layout: a status bar along the top (model loaded, VRAM use, context used, active senses, local or remote session, clock), then four tabs: Chat (F2; collapsible command blocks and the input box), History (F3; saved chats to search, reopen and carry on), Activity (F4; the audit log as a table) and Settings (F5; model, thinking, light/dark, accent, saved to config.toml with comments kept, never gesture macros). A footer shows only the keys that work right now. Focus must move into a tab when it opens: Textual's TabbedContent switches to whichever tab holds the focused widget. Confirmation modals for the confirm tier. Status colours (green, yellow, red) are libadwaita's, set explicitly: a Textual theme given only an accent derives them from it, which would turn the red "sense is on" dot into the accent colour.
 
 ## Example behaviour to aim for
 

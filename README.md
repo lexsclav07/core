@@ -31,14 +31,30 @@ The first run writes `~/.config/core/config.toml` with the defaults.
 |---|---|
 | Enter | send (click a suggestion on the welcome panel to fill the box first) |
 | ↑ / ↓ | bring back earlier messages |
-| Ctrl+C / Esc | stop the running command, then the reply |
+| Ctrl+C / Esc | stop the running command, then the reply (Esc on another tab: back to the chat) |
 | Ctrl+O | expand the latest command's output (or click it) |
 | Ctrl+T | push-to-talk |
 | Ctrl+G | gesture mode |
 | Ctrl+L | new chat: CORE forgets this one and frees its memory |
+| F2 F3 F4 F5 | the Chat, History, Activity and Settings tabs (or click them) |
 | F1 | help |
 | Ctrl+P | every command, plus Textual's theme picker |
 | Ctrl+Q | quit |
+
+### Tabs
+
+- **Chat (F2)**: talking to CORE.
+- **History (F3)**: every chat, saved in `~/.local/share/core/history.db` after
+  CORE's first reply. Type to search what was said, Enter to carry a chat on
+  (CORE remembers it all again), Delete to remove one. Saving stays on this
+  PC; `save = false` under `[history]` turns it off.
+- **Activity (F4)**: the audit log as a table: every command CORE ran, asked
+  about or refused, newest first, with a filter box and the full details of the
+  highlighted row.
+- **Settings (F5)**: pick the model from the ones you've pulled, thinking on or
+  off, light/dark and the accent colour. Changes apply straight away and are
+  saved to `config.toml` with its comments kept. Gesture macros stay in the file
+  on purpose, so a click can never add one.
 
 The footer only shows the keys that do something right now. While a command is
 running, whatever you type goes to that command (e.g. to answer `[y/N]`).
