@@ -86,6 +86,14 @@ class Conversation:
         del self.history[1:]
         self.reported_tokens = 0
 
+    def load(self, messages: list[Message]) -> None:
+        """Carry on an earlier chat (History tab): its messages after today's prompt.
+
+        The system prompt is always the current one, not the one saved with it.
+        """
+        self.history[1:] = [m for m in messages if m.get("role") != "system"]
+        self.reported_tokens = 0
+
     def context_used(self) -> int:
         """Roughly how many tokens of the context window the conversation fills.
 
