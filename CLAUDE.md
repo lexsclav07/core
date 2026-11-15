@@ -26,9 +26,10 @@ The model runs entirely on the local GPU. The only things that use the network a
 | Vision model | About 7B vision-language model (for example `qwen2.5vl:7b`), loaded on demand. Ollama swaps it with the main model because both don't fit in VRAM at once. |
 | Speech to text | `faster-whisper` (`small` or `medium`), run on CPU by default so the GPU stays with the LLM |
 | Text to speech (optional) | Piper, on CPU |
+| Hand tracking (gesture mode) | MediaPipe Hand Landmarker, on CPU, in its own process |
 | Secrets | GNOME Keyring through the `keyring` package. Never plain files. |
 | Config | `~/.config/core/config.toml` |
-| State and logs | `~/.local/share/core/` (SQLite for history, the audit log, and the Canvas cache) |
+| State and logs | `~/.local/share/core/` (SQLite for chat history in `history.db`, the audit log, and the Canvas cache) |
 
 Goal for the GPU: use as much of the 3060 as possible for the main model. Pick the quant and context length so the model plus KV cache sits near 6 GB: Chrome, Discord and GNOME can take ~1.4 GB of VRAM, so CORE uses an 8k context (16k pushed part of the model onto the CPU), and keep the rest of the pipeline off the GPU unless it needs it.
 
@@ -36,7 +37,14 @@ Goal for the GPU: use as much of the 3060 as possible for the main model. Pick t
 
 ```
 core/
-  app.py            # Textual app: logo splash, chat view, status bar
+  app.py            # Textual app: logo splash, theme, command palette
+  chat.py           # main screen: tabs (F2–F5), chat, input (↑/↓ history), footer, AgentUI
+  history.py        # saved chats in SQLite (history.db), replaying one on screen
+  panels/           # the other tabs: history.py (F3), activity.py (F4), settings.py (F5)
+  status.py         # top status bar: model, VRAM, context gauge, senses, clock
+  welcome.py        # welcome panel (empty chat) and the F1 help screen
+  handview.py       # gesture mode: live braille drawing of the tracked hand
+  theme.tcss        # the look (Textual CSS); colours come from the GNOME accent
   widgets.py        # approval dialog, masked password field, inline command blocks
   agent/
     loop.py         # tool-calling loop against Ollama's /api/chat
@@ -55,6 +63,10 @@ core/
     rice.py         # gsettings/dconf, GNOME extensions, themes, wallpapers (with backups)
     screen.py       # screenshots and recording through xdg-desktop-portal / PipeWire
     camera.py       # webcam snapshot (OpenCV / v4l2)
+    signs.py        # 21 hand points → sign name ("peace"), debouncing
+    hand_worker.py  # separate process: webcam → MediaPipe → hand points as JSON lines
+    macros.py       # gesture macros through risk.py: arm (y/n) → fire → audit
+    gestures.py     # gesture mode (Ctrl+G): runs the worker, fires macros
     mic.py          # push-to-talk recording → faster-whisper
     notify.py       # read GNOME notifications from D-Bus, send notifications
     mail_gmail.py   # Gmail API
@@ -62,7 +74,7 @@ core/
     discord.py      # summarise Discord mentions + DMs from desktop notifications
     canvas.py       # Canvas LMS REST API
     calendar.py     # .ics generation + Google Calendar API
-  logo/             # character art, wordmark, animation frames
+  logo/             # logo.txt / small.txt (made from docs/logo.png by from_image.py), frames
   config.py
   secrets.py
 systemd/            # user units
@@ -99,6 +111,7 @@ CORE has a lot of power over the machine and can be reached remotely, so these r
 - Screen: use the xdg-desktop-portal Screenshot / ScreenCast APIs (GNOME Wayland blocks direct capture). The first use shows GNOME's permission dialog, which is expected. Recordings go to `~/Videos/core/`.
 - Images go to the vision model and are deleted afterwards unless Lex asks to keep them.
 - Remote sessions: senses still work, and CORE tells Lex it's capturing the PC's screen or camera, not the laptop's.
+- **Gesture mode** (hand signs run macros): only Lex turns it on (Ctrl+G), never the model. It is refused over SSH because whoever is at the PC would be making the signs. It shows the status-bar indicator and a GNOME notification, and it turns itself off after `auto_off` minutes. Frames stay inside the worker process and only hand points come out. Macros are Lex's own commands from `[gestures.macros]`, and the model is never in that loop. Every macro goes through `risk.py`: blocked macros are refused, sudo macros are refused (there's no terminal for the password), and each confirm-tier macro gets **one** y/n when gesture mode turns on (showing the exact command), not one on every sign. Each run is shown in the chat and audited. Macros are classified again when they fire, and one that has become confirm-tier without approval doesn't run.
 
 ## Integrations
 
@@ -122,15 +135,10 @@ All credentials live in GNOME Keyring. Each integration can be switched on or of
 
 ## Logo and TUI look
 
-- **Logo: placeholder for now.** Lex will design the real logo later. Until then the splash screen shows just this, loaded from `core/logo/logo.txt` so it can be swapped without touching code:
-
-```
-[ CORE ]
-```
-
-- Don't invent mascot art. Build the splash so it reads any multi-line text file (and optional extra frames for animation) from `core/logo/`.
+- **Logo: Lex's design.** The letters C O / R E as chunky blocks in a 2×2 square, in the style of Supercell's logo. The image is `docs/logo.png` (shown at the top of the README). The terminal versions are block-character text made from it by `core/logo/from_image.py`: `core/logo/logo.txt` (splash, 40 wide) and `core/logo/small.txt` (welcome panel, 20 wide, hidden in windows under 32 rows). Regenerate them from the image rather than hand-editing; a test checks `logo.txt` still matches the image.
+- Don't invent mascot art. The splash reads any multi-line text file (and optional `frame_*.txt` frames for animation) from `core/logo/`.
 - Colours come from a theme in config. Default to one accent colour that matches the GNOME accent if it can be read through `gsettings`.
-- TUI layout: chat in the middle, a collapsible command and output panel, a status bar (model loaded, VRAM use, active senses, local or remote session), and confirmation modals for the confirm tier.
+- TUI layout: a status bar along the top (model loaded, VRAM use, context used, active senses, local or remote session, clock), then four tabs: Chat (F2; collapsible command blocks and the input box), History (F3; saved chats to search, reopen and carry on), Activity (F4; the audit log as a table) and Settings (F5; model, thinking, light/dark, accent, saved to config.toml with comments kept, never gesture macros). A footer shows only the keys that work right now. Focus must move into a tab when it opens: Textual's TabbedContent switches to whichever tab holds the focused widget. Confirmation modals for the confirm tier. Status colours (green, yellow, red) are libadwaita's, set explicitly: a Textual theme given only an accent derives them from it, which would turn the red "sense is on" dot into the accent colour.
 
 ## Example behaviour to aim for
 
@@ -142,7 +150,7 @@ All credentials live in GNOME Keyring. Each integration can be switched on or of
 2. Shell tool with a PTY, risk classifier, confirmation modal, and audit log. Get this solid before anything else.
 3. systemd user service, tmux, autostart, Tailscale + SSH remote access.
 4. Package and driver helpers, GNOME ricing with backups.
-5. Screen and vision model, then mic (push-to-talk + whisper), then webcam.
+5. Screen and vision model, then mic (push-to-talk + whisper), then webcam, then gesture mode (hand-sign macros).
 6. Notifications, Canvas, then Google (Gmail + Calendar + .ics), Outlook, and Discord summaries.
 7. Later: optional LoRA fine-tune of the main model (Unsloth/QLoRA on the 3060) using real conversation logs where CORE made mistakes, plus TTS replies and Wake-on-LAN.
 

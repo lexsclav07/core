@@ -44,17 +44,17 @@ async def _ask(ctx: ToolContext, sense: str, label: str, what: str) -> bool:
 def _active(ctx: ToolContext, sense: str, message: str) -> Iterator[None]:
     """Status bar indicator + GNOME notification while a sense is on."""
     ctx.ui.sense(sense, True)
-    _notify(message)
+    notify_desktop(message)
     try:
         yield
     finally:
         ctx.ui.sense(sense, False)
 
 
-def _notify(message: str) -> None:
+def notify_desktop(message: str, icon: str = "camera-web") -> None:
     with contextlib.suppress(OSError):
         subprocess.Popen(  # fire and forget; a missing notification isn't fatal
-            ["notify-send", "--app-name=CORE", "--icon=camera-web", "CORE", message],
+            ["notify-send", "--app-name=CORE", f"--icon={icon}", "CORE", message],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

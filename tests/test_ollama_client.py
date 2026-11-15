@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from core.agent.loop import Conversation
-from core.agent.ollama_client import Chunk, OllamaClient, OllamaError
+from core.agent.ollama_client import Chunk, InstalledModel, OllamaClient, OllamaError, Stats
 
 
 def ndjson(*objs: dict[str, object]) -> bytes:
@@ -35,6 +35,28 @@ async def test_chat_streams_thinking_then_content() -> None:
     assert chunks == [Chunk("thinking", "hmm"), Chunk("content", "Hel"), Chunk("content", "lo")]
     assert seen["options"] == {"num_ctx": 1024}
     assert seen["think"] is True and seen["stream"] is True
+
+
+async def test_last_line_gives_speed_and_size() -> None:
+    done = {"message": {"role": "assistant", "content": ""}, "done": True,
+            "prompt_eval_count": 1200, "eval_count": 74, "eval_duration": 2 * 10**9}  # fmt: skip
+    client = fake_ollama(lambda r: httpx.Response(200, content=ndjson(done)))
+    [chunk] = [c async for c in client.chat("m", [], num_ctx=1024, think=False)]
+    assert chunk == Chunk("stats", stats=Stats(1200, 74, 2.0))
+    assert chunk.stats is not None and chunk.stats.tokens_per_second == 37.0
+
+
+async def test_conversation_tracks_context_and_resets() -> None:
+    done = {"message": {"role": "assistant", "content": "Hi"}, "done": True,
+            "prompt_eval_count": 5000, "eval_count": 2, "eval_duration": 1}  # fmt: skip
+    client = fake_ollama(lambda r: httpx.Response(200, content=ndjson(done)))
+    convo = Conversation(client, "m", num_ctx=8192, think=False)
+    empty = convo.context_used()
+    assert 1000 < empty < 3000  # the system prompt alone
+    [c async for c in convo.send("hello")]
+    assert convo.context_used() == 5002  # Ollama's count is bigger than the estimate here
+    convo.reset()
+    assert len(convo.history) == 1 and convo.context_used() == empty
 
 
 async def test_chat_error_line_raises() -> None:
@@ -91,3 +113,16 @@ async def test_failed_turn_is_dropped_from_history() -> None:
     with pytest.raises(OllamaError):
         [c async for c in convo.send("hello")]
     assert [m["role"] for m in convo.history] == ["system"]
+
+
+async def test_installed_models() -> None:
+    tags = {"models": [
+        {"name": "qwen3:8b", "size": 5_200_000_000,
+         "details": {"parameter_size": "8.2B", "quantization_level": "Q4_K_M"}},
+        {"name": "qwen3-vl:8b", "size": 6_100_000_000},
+    ]}  # fmt: skip
+    client = fake_ollama(lambda r: httpx.Response(200, json=tags))
+    assert await client.installed_models() == [
+        InstalledModel("qwen3-vl:8b", 6_100_000_000, "", ""),
+        InstalledModel("qwen3:8b", 5_200_000_000, "8.2B", "Q4_K_M"),
+    ]

@@ -39,7 +39,7 @@ class FakeUI:
 def isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setattr(senses, "KEEP_DIR", tmp_path / "kept")
-    monkeypatch.setattr(senses, "_notify", lambda message: None)
+    monkeypatch.setattr(senses, "notify_desktop", lambda message: None)
 
 
 def fake_screenshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
