@@ -46,7 +46,8 @@ def welcome_text(now: datetime | None = None) -> str:
         lines.append(f"  [@click=screen.suggest({i})][$accent]›[/] {escape(s)}[/]")
     lines += [
         "",
-        "[$text-muted]Ctrl+T talk · Ctrl+G hand signs · F1 help · Ctrl+P all commands[/]",
+        "[$text-muted]Ctrl+T talk · Ctrl+G hand signs · F3 past chats · F1 help · "
+        "Ctrl+P all commands[/]",
     ]
     return "\n".join(lines)
 
@@ -79,12 +80,18 @@ SIGN_LIST = "  ".join(f"{EMOJI.get(s, '')} {s}".strip() for s in (*SIGNS, *THUMB
 HELP = f"""\
 [b $primary]Keys[/]
   [b]Enter[/]      send          [b]↑ / ↓[/]    earlier messages
-  [b]Ctrl+C[/]     stop the running command, then the reply   [b]Esc[/] same
+  [b]Ctrl+C[/]     stop the running command, then the reply
+  [b]Esc[/]        the same, or back to the chat from another tab
   [b]Ctrl+O[/]     expand the latest command's output (or click it)
   [b]Ctrl+T[/]     talk: press to record, again (or Enter) to stop
   [b]Ctrl+G[/]     gesture mode on/off
   [b]Ctrl+L[/]     new chat (CORE forgets this one)
   [b]Ctrl+P[/]     all commands      [b]Ctrl+Q[/]  quit
+
+[b $primary]Tabs[/]  (click them, or the F-keys)
+  [b]F2[/] Chat      [b]F3[/] History: past chats; Enter carries one on, Delete removes it
+  [b]F4[/] Activity: everything CORE ran, asked about or refused
+  [b]F5[/] Settings: model, thinking, light/dark, accent (saved to config.toml)
 
 [b $primary]Approvals[/]
   Read-only commands run straight away. Anything that changes the PC shows
@@ -103,6 +110,7 @@ HELP = f"""\
 [b $primary]Files[/]
   config     ~/.config/core/config.toml
   audit log  ~/.local/share/core/audit.log   (every command CORE ran or refused)
+  chats      ~/.local/share/core/history.db  (the History tab)
 
 [$text-muted]Esc or F1 to close[/]"""
 

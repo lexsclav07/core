@@ -13,8 +13,8 @@ SplashScreen { align: center middle; }
 
 /* Status bar along the top, keys along the bottom */
 #status { dock: top; height: 1; background: $panel; color: $foreground; }
-/* Widgets docked to the same edge overlap, so the input stands one row above the footer. */
-#prompt { dock: bottom; margin: 0 1 1 1; border: round $primary 40%; background: $background; }
+/* The input sits at the bottom of the Chat tab, just above the footer. */
+#prompt { dock: bottom; margin: 0 1; border: round $primary 40%; background: $background; }
 #prompt:focus { border: round $primary; }
 
 /* The conversation */
@@ -76,3 +76,29 @@ ApprovalModal, PasswordModal, HelpScreen { align: center middle; }
 .modal-buttons { height: auto; align-horizontal: right; margin-top: 1; }
 .modal-buttons Button { margin-left: 2; }
 .note { color: $text-muted; }
+
+/* Tabs: History, Activity and Settings (core/panels/) */
+#tabs { height: 1fr; }
+TabPane { padding: 0; }
+#history, #activity { padding: 1 2 0 2; }
+#history-search, #activity-filter { margin-bottom: 1; }
+#history-table, #activity-table { height: 1fr; }
+#history-note { height: auto; padding: 1 0; }
+#activity-detail {
+    height: auto; max-height: 9; margin-top: 1; padding: 0 1;
+    background: $boost; border-left: thick $primary;
+}
+#settings { padding: 1 2; }
+.settings-heading { text-style: bold; color: $primary; margin-top: 1; }
+.setting { height: auto; }
+.setting Label { width: 26; padding-top: 1; }
+.setting Select { width: 60; }
+#settings .note { margin: 0 0 1 26; }
+#settings-other { margin-top: 1; }
+
+/* Yes/no questions (e.g. deleting a chat) */
+YesNoModal { align: center middle; }
+#yes-no {
+    width: 60; max-width: 90%; height: auto; padding: 1 2;
+    border: round $error; background: $surface;
+}

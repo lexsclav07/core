@@ -79,6 +79,35 @@ class ApprovalModal(ModalScreen[bool]):
         self.dismiss(run)
 
 
+class YesNoModal(ModalScreen[bool]):
+    """A plain question for Lex, e.g. "Delete this chat?". Not for commands."""
+
+    BINDINGS = [
+        Binding("y", "answer(True)", "Yes"),
+        Binding("n,escape", "answer(False)", "No"),
+    ]
+
+    def __init__(self, question: str, detail: str = "") -> None:
+        super().__init__()
+        self.question = question
+        self.detail = detail
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="yes-no"):
+            yield Static(Text(self.question), classes="modal-title")
+            if self.detail:
+                yield Static(Text(self.detail), classes="note")
+            with Horizontal(classes="modal-buttons"):
+                yield Button("\\[y] Yes", id="yes", variant="error")
+                yield Button("\\[n] No", id="no")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "yes")
+
+    def action_answer(self, yes: bool) -> None:
+        self.dismiss(yes)
+
+
 class PasswordModal(ModalScreen[str | None]):
     """A masked field for sudo. The value goes straight back to the PTY."""
 
@@ -189,6 +218,7 @@ class CommandBlock(Vertical):
             "invalid": ("✗ won't work (checked)", "yellow"),
             "not approved": ("✗ not run: needs a y/n now, press Ctrl+G twice", "yellow"),
             "launched": ("✓ started", "green"),
+            "saved": ("· earlier", "dim"),  # put back from a saved chat
             "exit 0": ("✓", "green"),
         }.get(self.status, (f"✗ {self.status}", "red"))
         if self.duration is not None and self.duration >= 0.1:

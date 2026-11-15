@@ -7,6 +7,7 @@ desktop style unless config.toml says otherwise.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,8 @@ from textual.widgets import Static
 from core.agent.loop import Conversation
 from core.agent.ollama_client import OllamaClient, OllamaError
 from core.chat import ChatScreen
-from core.config import Config, load_config, resolve_accent, resolve_dark
+from core.config import Config, load_config, resolve_accent, resolve_dark, save_setting
+from core.history import ChatStore
 from core.logo import load_logo
 from core.status import session_kind
 from core.tools.senses import look_at_screen, look_at_webcam
@@ -85,6 +87,7 @@ class CoreApp(App[None]):
         # No config: read it (lets `textual run --dev core.app:CoreApp` work).
         self.config = config = config or load_config()
         self.active_senses: set[str] = set()  # shown in red in the status bar
+        self.store = ChatStore()  # saved chats, for the History tab
         self.client = OllamaClient(config.ollama.url)
         self.conversation = Conversation(
             self.client,
@@ -98,16 +101,35 @@ class CoreApp(App[None]):
         )
 
     def on_mount(self) -> None:
+        self.apply_theme()
+        self.chat = ChatScreen()
+        self.conversation.ui = self.chat
+        self.push_screen(self.chat)
+        self.push_screen(SplashScreen())
+
+    def apply_theme(self) -> None:
+        """Colours from [ui] accent and mode (GNOME's when they're empty/"auto")."""
         accent = resolve_accent(self.config.ui.accent)
         dark = resolve_dark(self.config.ui.mode)
         success, warning, error = STATE_COLOURS[dark]
-        theme = Theme("core", accent, success=success, warning=warning, error=error, dark=dark)
+        # A new name for each look: setting the same theme name again wouldn't redraw.
+        name = f"core-{'dark' if dark else 'light'}-{accent.lstrip('#')}"
+        theme = Theme(name, accent, success=success, warning=warning, error=error, dark=dark)
         self.register_theme(theme)
-        self.theme = "core"
-        chat = ChatScreen()
-        self.conversation.ui = chat
-        self.push_screen(chat)
-        self.push_screen(SplashScreen())
+        self.theme = name
+
+    def change_setting(self, section: str, key: str, value: str | bool) -> None:
+        """Save one setting to config.toml and apply it now (the Settings tab)."""
+        save_setting(section, key, value)
+        part = dataclasses.replace(getattr(self.config, section), **{key: value})
+        self.config = dataclasses.replace(self.config, **{section: part})
+        if (section, key) == ("model", "main"):
+            self.conversation.model = str(value)
+            self.chat.model_changed(str(value))
+        elif (section, key) == ("model", "think"):
+            self.conversation.think = bool(value)
+        elif section == "ui":
+            self.apply_theme()
 
     def get_system_commands(self, screen: Screen[Any]) -> Iterable[SystemCommand]:
         """CORE's own entries in the Ctrl+P command palette, above Textual's."""
@@ -120,6 +142,13 @@ class CoreApp(App[None]):
                                 screen.action_talk)  # fmt: skip
             yield SystemCommand("Help", "Keys, approvals, and where CORE keeps things (F1)",
                                 screen.action_help)  # fmt: skip
+            for tab, about in [
+                ("history", "Saved chats: search, reopen, delete (F3)"),
+                ("activity", "Everything CORE ran or refused (F4)"),
+                ("settings", "Model, thinking, light/dark, accent (F5)"),
+            ]:
+                yield SystemCommand(tab.title(), about,
+                                    lambda tab=tab: screen.action_show_tab(tab))  # fmt: skip
         yield from super().get_system_commands(screen)
 
     async def on_unmount(self) -> None:

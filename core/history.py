@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 Message = dict[str, Any]
 AUTOMATIC = "(Automatic message from CORE"  # the loop's nudges, not Lex's words
@@ -45,6 +46,78 @@ class ChatSummary:
     started: datetime
     updated: datetime
     turns: int  # how many messages Lex sent
+
+
+@dataclass(frozen=True)
+class Shown:
+    """One thing to put back on the Chat tab when a saved chat is opened."""
+
+    kind: Literal["you", "core", "command", "reply"]
+    text: str = ""
+    output: str = ""  # for a command: what came back (exit code and output)
+
+
+def replay(messages: list[Message]) -> list[Shown]:
+    """What a saved chat looked like: Lex's messages, CORE's replies, its commands.
+
+    A reply that CORE's automatic nudge made it redo is left out, as it was
+    taken off the screen at the time (see agent/loop.py).
+    """
+    redone = {
+        i for i, m in enumerate(messages[:-1])
+        if m.get("role") == "assistant"
+        and str(messages[i + 1].get("content", "")).startswith(AUTOMATIC)
+    }  # fmt: skip
+    shown: list[Shown] = []
+    waiting: list[int] = []  # commands whose output hasn't come yet, in order
+    for i, m in enumerate(messages):
+        role, content = m.get("role"), str(m.get("content") or "")
+        if role == "user" and not content.startswith(AUTOMATIC):
+            shown.append(Shown("you", content))
+        elif role == "assistant" and i not in redone:
+            if not shown or shown[-1].kind == "you":
+                shown.append(Shown("core"))
+            if content.strip():
+                shown.append(Shown("reply", content))
+            for call in m.get("tool_calls") or []:
+                waiting.append(len(shown))
+                shown.append(Shown("command", _call_text(call.get("function") or {})))
+        elif role == "tool" and waiting:
+            at = waiting.pop(0)
+            shown[at] = replace(shown[at], output=content)
+    return shown
+
+
+def outcome(output: str) -> tuple[str, str]:
+    """A saved command result → (status for its block, what to show under it).
+
+    The saved text is what the model was told (see tools/shell.py), e.g.
+    "Exit code 0.\n…" or "Not run: Lex pressed n…". Lex sees the plain
+    outcome instead. For a blocked command, the second part is the reason.
+    """
+    first, _, rest = output.partition("\n")
+    if code := re.fullmatch(r"Exit code (-?\d+)\.", first):
+        return f"exit {code.group(1)}", rest
+    if blocked := re.match(r"BLOCKED by CORE's safety rules: (.*?)\. This can't be run", first):
+        return "blocked", blocked.group(1)
+    if first.startswith("Not run: Lex pressed n"):
+        return "denied", ""
+    if first.startswith("Not run:"):
+        return "invalid", ""  # preflight.py: it would have failed, so Lex wasn't asked
+    if first.startswith("Timed out"):
+        return "timed out", rest
+    if first.startswith(("Lex stopped", "Cancelled")):
+        return "stopped", rest
+    return "saved", output  # other tools, e.g. what the vision model saw
+
+
+def _call_text(function: dict[str, Any]) -> str:
+    """run_command shows its command; other tools show their name and arguments."""
+    args = function.get("arguments") or {}
+    if function.get("name") == "run_command" and "command" in args:
+        return str(args["command"])
+    given = ", ".join(f"{k}={v!r}" for k, v in args.items())
+    return f"{function.get('name', '?')}({given})"
 
 
 def history_path() -> Path:

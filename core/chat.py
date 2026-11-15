@@ -1,7 +1,8 @@
-"""The chat screen: status bar on top, the conversation, the input box, the keys.
+"""The main screen: status bar, four tabs, and the keys along the bottom.
 
     ┌─────────────────────────────────────────────────┐
     │ ◆ CORE  ● qwen3:8b  VRAM ━━━━──  ctx ━──  …     │  StatusBar (status.py)
+    │ Chat F2   History F3   Activity F4   Settings F5│  tabs (others: panels/)
     │ you · 21:04                       ╭ hand signs ╮│
     │ ▌ what kernel am I on?            │   ⡇ ⢠⠃     ││  HandView, only in
     │ ◆ CORE                            │ ✌ peace ━━ ││  gesture mode
@@ -13,12 +14,14 @@
     └─────────────────────────────────────────────────┘  do something right now
 
 The screen is also the AgentUI the tools talk to (approvals, command blocks,
-senses; see tools/registry.py) and the GestureUI for gesture mode.
+senses; see tools/registry.py) and the GestureUI for gesture mode. Approvals
+pop up over whichever tab is open.
 """
 
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
@@ -28,16 +31,29 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.screen import ModalScreen, Screen
-from textual.widgets import Collapsible, Footer, Input, LoadingIndicator, Markdown, Static
+from textual.widgets import (
+    Collapsible,
+    Footer,
+    Input,
+    LoadingIndicator,
+    Markdown,
+    Static,
+    TabbedContent,
+    TabPane,
+)
 from textual.widgets.markdown import MarkdownStream
 from textual.worker import Worker, WorkerState
 
 from core.agent import audit
 from core.agent.ollama_client import OllamaError
-from core.agent.risk import Assessment
+from core.agent.risk import Assessment, Tier
 from core.config import load_config
 from core.handview import HandView
+from core.history import from_lex, outcome, replay, title_for
 from core.logo import load_small_logo
+from core.panels.activity import ActivityPanel
+from core.panels.history import HistoryPanel
+from core.panels.settings import SettingsPanel
 from core.status import Snapshot, render, session_kind, vram_usage
 from core.tools import gestures
 from core.tools.mic import MicError, Recorder, transcribe
@@ -57,6 +73,10 @@ PROMPT_RUNNING = "A command is running: type here to answer it, Ctrl+C stops it"
 PROMPT_RECORDING = "● Recording… press Ctrl+T or Enter to stop"
 PROMPT_TRANSCRIBING = "Transcribing…"
 LONG_REPLY_S = 10  # a reply this slow gets a desktop notification if Lex looked away
+# Tab ids and their labels; the F-key is in the label because the footer has no room.
+TABS = {"chat": "Chat [dim]F2[/]", "history": "History [dim]F3[/]",
+        "activity": "Activity [dim]F4[/]", "settings": "Settings [dim]F5[/]"}  # fmt: skip
+FROM_HISTORY = Assessment(Tier.SAFE, "from a saved chat")  # for blocks put back on screen
 
 
 def turn_summary(seconds: float, tokens: int, writing_s: float) -> str:
@@ -176,12 +196,16 @@ class ReplyBlock:
 class ChatScreen(Screen[None]):
     BINDINGS = [
         Binding("ctrl+c", "cancel", "Stop", priority=True),
-        Binding("escape", "cancel", "Stop", show=False),
+        Binding("escape", "escape", "Back", show=False),
         Binding("ctrl+t", "talk", "Talk", priority=True),
         Binding("ctrl+g", "gestures", "Hand signs", priority=True),
         Binding("ctrl+l", "new_chat", "New chat", priority=True),
         Binding("ctrl+o", "toggle_output", "Output"),
         Binding("f1", "help", "Help"),
+        Binding("f2", "show_tab('chat')", "Chat", show=False),
+        Binding("f3", "show_tab('history')", "History", show=False),
+        Binding("f4", "show_tab('activity')", "Activity", show=False),
+        Binding("f5", "show_tab('settings')", "Settings", show=False),
         Binding("up", "history(-1)", show=False),
         Binding("down", "history(1)", show=False),
     ]
@@ -194,18 +218,27 @@ class ChatScreen(Screen[None]):
         self.recorder: Recorder | None = None
         self.transcribing = False
         self.gesture_worker: Worker[None] | None = None
+        self.chat_id: int | None = None  # this chat's row in the History tab
         self.sent: list[str] = []  # for ↑/↓
         self.history_at = 0
         self.draft = ""  # what was typed before ↑
 
     def compose(self) -> ComposeResult:
-        # Docked widgets take their edge in this order, so the footer ends up
-        # below the input and the hand view only takes space beside the chat.
         yield StatusBar()
-        yield Input(placeholder=PROMPT_IDLE, id="prompt")
         yield Footer()
-        yield HandView(id="hand")
-        yield VerticalScroll(Welcome(load_small_logo()), id="messages")
+        with TabbedContent(id="tabs", initial="tab-chat"):
+            with TabPane(TABS["chat"], id="tab-chat"):
+                # Docked widgets take their edge in this order, so the hand
+                # view only takes space beside the chat, not the input.
+                yield Input(placeholder=PROMPT_IDLE, id="prompt")
+                yield HandView(id="hand")
+                yield VerticalScroll(Welcome(load_small_logo()), id="messages")
+            with TabPane(TABS["history"], id="tab-history"):
+                yield HistoryPanel()
+            with TabPane(TABS["activity"], id="tab-activity"):
+                yield ActivityPanel()
+            with TabPane(TABS["settings"], id="tab-settings"):
+                yield SettingsPanel()
 
     def on_mount(self) -> None:
         self.prompt.focus()
@@ -234,13 +267,51 @@ class ChatScreen(Screen[None]):
     def replying(self) -> bool:
         return self.reply_worker is not None and self.reply_worker.state == WorkerState.RUNNING
 
+    @property
+    def tab(self) -> str:
+        return (self.query_one(TabbedContent).active or "tab-chat").removeprefix("tab-")
+
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Keep the footer honest: hide keys that would do nothing right now."""
         if action == "cancel":
             return self.running is not None or self.replying
+        if action == "escape":
+            return self.running is not None or self.replying or self.tab != "chat"
         if action == "toggle_output":
-            return self.last_block is not None
+            return self.last_block is not None and self.tab == "chat"
         return True
+
+    # Tabs ----------------------------------------------------------------
+
+    def action_show_tab(self, tab: str) -> None:
+        self.query_one(TabbedContent).active = f"tab-{tab}"
+
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        tab = (event.pane.id or "").removeprefix("tab-")
+        if tab == "chat":
+            self.prompt.focus()
+        elif tab == "history":
+            panel = self.query_one(HistoryPanel)
+            panel.reload()
+            panel.query_one("#history-search").focus()
+        elif tab == "activity":
+            activity = self.query_one(ActivityPanel)
+            activity.reload()
+            activity.query_one("#activity-table").focus()
+        elif tab == "settings":
+            settings = self.query_one(SettingsPanel)
+            settings.refresh_models()
+            settings.focus()
+        # Focus has to move into the new tab: TabbedContent switches to whichever
+        # tab holds the focused widget, so the chat input would pull it back.
+        self.refresh_bindings()
+
+    def action_escape(self) -> None:
+        """Esc: stop what's running, like Ctrl+C; otherwise back to the chat."""
+        if self.running is not None or self.replying:
+            self.action_cancel()
+        else:
+            self.action_show_tab("chat")
 
     def _changed(self) -> None:
         """Something started or stopped: update the input hint and the footer."""
@@ -323,6 +394,65 @@ class ChatScreen(Screen[None]):
             summary = turn_summary(took, tokens, writing_s)
             await messages.mount(Static(summary, classes="reply-meta"))
             self._update_context()
+            self._save_chat()
+
+    def _save_chat(self) -> None:
+        """Keep this chat for the History tab (unless [history] save = false)."""
+        messages = self.core.conversation.history[1:]  # not the system prompt
+        if not self.core.config.history.save or not from_lex(messages):
+            return
+        try:
+            self.chat_id = self.core.store.save(self.chat_id, messages)
+        except (sqlite3.Error, OSError) as e:
+            self.notify(f"Couldn't save this chat: {e}", severity="warning", markup=False)
+
+    async def on_history_panel_open(self, event: HistoryPanel.Open) -> None:
+        """Carry on a saved chat: back on screen, and back in CORE's memory."""
+        if self.running is not None or self.replying:
+            self.notify("CORE is still working on the last message. Ctrl+C stops it first.")
+            return
+        try:
+            messages = self.core.store.load(event.chat_id)
+        except (KeyError, sqlite3.Error) as e:
+            self.notify(f"Couldn't open that chat: {e!r}", severity="warning", markup=False)
+            return
+        self.core.conversation.load(messages)
+        self.chat_id = event.chat_id
+        self.last_block = None
+        await self.show_saved(messages)
+        self._update_context()
+        self.action_show_tab("chat")
+        self.notify(f"Carrying on: {title_for(messages)}", markup=False)
+
+    async def show_saved(self, messages: list[dict[str, object]]) -> None:
+        """Put a saved chat back on the Chat tab, as it looked."""
+        area = self.messages
+        await area.remove_children()
+        widgets: list[Static | Markdown | CommandBlock] = []
+        for item in replay(messages):
+            if item.kind == "you":
+                widgets += [Static("[b $primary]you[/]", classes="who"),
+                            Static(item.text, classes="user", markup=False)]  # fmt: skip
+            elif item.kind == "core":
+                widgets.append(Static("[b $accent]◆ CORE[/]", classes="who"))
+            elif item.kind == "reply":
+                widgets.append(Markdown(item.text, classes="assistant"))
+            else:
+                status, shown = outcome(item.output)
+                blocked = Assessment(Tier.BLOCKED, shown)
+                block = CommandBlock(item.text, blocked if status == "blocked" else FROM_HISTORY)
+                block.raw = "" if status == "blocked" else shown
+                block.status = status
+                widgets.append(block)
+        await area.mount_all(widgets)
+        area.scroll_end(animate=False)
+        area.anchor()
+
+    def model_changed(self, model: str) -> None:
+        """The Settings tab picked another model."""
+        status = self.query_one(StatusBar)
+        status.snap.model = model
+        status.refresh_status()
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.worker is self.reply_worker:
@@ -367,13 +497,15 @@ class ChatScreen(Screen[None]):
             self.notify("CORE is still working on the last message. Ctrl+C stops it first.")
             return
         self.core.conversation.reset()
+        self.chat_id = None  # the old one stays in History
         self.last_block = None
+        self.action_show_tab("chat")
         self.messages.anchor(False)  # back to the top, where the welcome panel goes
         await self.messages.remove_children()
         await self.messages.mount(Welcome(load_small_logo()))
         self._update_context()
         self._changed()
-        self.notify("New chat. CORE has forgotten the last one.")
+        self.notify("New chat. The last one is in History (F3).")
 
     def action_help(self) -> None:
         self.app.push_screen(HelpScreen())

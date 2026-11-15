@@ -6,7 +6,7 @@ import pytest
 
 from core.agent.loop import Conversation
 from core.agent.ollama_client import OllamaClient
-from core.history import AUTOMATIC, ChatStore, title_for
+from core.history import AUTOMATIC, ChatStore, Shown, outcome, replay, title_for
 
 
 def chat(*said: str) -> list[dict[str, str]]:
@@ -60,3 +60,58 @@ def test_conversation_carries_on_a_saved_chat() -> None:
     system = convo.history[0]
     convo.load([{"role": "system", "content": "old prompt"}, *chat("hi")])
     assert convo.history == [system, *chat("hi")]  # today's prompt, not the saved one
+
+
+def run(command: str) -> dict[str, object]:
+    args = {"command": command, "explanation": "x", "undo": "x"}
+    return {"function": {"name": "run_command", "arguments": args}}
+
+
+def test_replay_puts_a_chat_back_as_it_looked() -> None:
+    messages = [
+        {"role": "user", "content": "what kernel?"},
+        {"role": "assistant", "content": "Run this:\n```bash\nuname -r\n```"},  # redone
+        {"role": "user", "content": f"{AUTOMATIC}) do it yourself"},
+        {"role": "assistant", "content": "", "tool_calls": [run("uname -r"), run("whoami")]},
+        {"role": "tool", "content": "Exit code 0.\n6.18.44"},
+        {"role": "tool", "content": "Exit code 0.\nlex"},
+        {"role": "assistant", "content": "Kernel 6.18.44."},
+        {"role": "user", "content": "look at my screen"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"function": {"name": "look_at_screen", "arguments": {"question": "what's open"}}}
+            ],
+        },
+        {"role": "tool", "content": "a terminal"},
+    ]
+    assert replay(messages) == [
+        Shown("you", "what kernel?"),
+        Shown("core"),
+        Shown("command", "uname -r", "Exit code 0.\n6.18.44"),
+        Shown("command", "whoami", "Exit code 0.\nlex"),
+        Shown("reply", "Kernel 6.18.44."),
+        Shown("you", "look at my screen"),
+        Shown("core"),
+        Shown("command", 'look_at_screen(question="what\'s open")', "a terminal"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("saved", "status", "shown"),
+    [
+        ("Exit code 0.\n6.18.44", "exit 0", "6.18.44"),
+        ("Exit code 127.\nbash: ptyxsi: command not found", "exit 127",
+         "bash: ptyxsi: command not found"),
+        ("BLOCKED by CORE's safety rules: rm -r on / would wipe the system. This can't be run,"
+         " even if Lex asks.", "blocked", "rm -r on / would wipe the system"),
+        ("Not run: Lex pressed n in CORE's approval dialog, so…", "denied", ""),
+        ("Not run: the GNOME setting x y doesn't exist.", "invalid", ""),
+        ("Timed out after 120s and was stopped.\npartial", "timed out", "partial"),
+        ("Lex stopped this command.\npartial", "stopped", "partial"),
+        ("What the vision model saw: a terminal", "saved", "What the vision model saw: a terminal"),
+    ],
+)  # fmt: skip
+def test_saved_outcomes_read_like_they_did_live(saved: str, status: str, shown: str) -> None:
+    assert outcome(saved) == (status, shown)
