@@ -1,5 +1,6 @@
-"""The look: status bar, welcome panel, hand view, highlighting. Pure functions,
-plus a few runs of the real chat screen against a fake Ollama."""
+"""The look: the line under the input, welcome box, / menu, spinner, hand view,
+command blocks. Pure functions, plus runs of the real chat screen against a
+fake Ollama."""
 
 import json
 import re
@@ -13,11 +14,14 @@ from textual.markup import to_content
 
 from core.agent.ollama_client import OllamaClient
 from core.app import CoreApp
-from core.chat import ChatScreen, StatusBar, turn_summary
+from core.chat import ChatScreen, StatusLine, turn_summary
+from core.commands import command_for, matching
 from core.config import Config
 from core.handview import render as draw_hand
-from core.status import Snapshot, escape, meter, render, short
-from core.welcome import Welcome, greeting, welcome_text
+from core.history import ChatSummary
+from core.spinner import spinner_line
+from core.status import Snapshot, escape, level, render, short
+from core.welcome import Welcome, greeting, recent_text, tips_text
 from core.widgets import highlight
 
 HANDS = json.loads((Path(__file__).parent / "data" / "hands.json").read_text())
@@ -27,37 +31,31 @@ def plain(markup: str) -> str:
     return to_content(markup).plain
 
 
-# Status bar ------------------------------------------------------------------
+# The line under the input ------------------------------------------------------
 
 
-def test_status_bar_wide_and_narrow() -> None:
+def test_status_line_wide_and_narrow() -> None:
     snap = Snapshot(model="qwen3:8b", model_state="gpu", vram_mb=(6144, 8192),
                     context=(1640, 8192))  # fmt: skip
-    wide = plain(render(snap, 140, datetime(2026, 10, 21, 21, 4)))
-    assert wide.startswith(" ◆ CORE ")
-    assert "VRAM ━━━━━━━━── 6.0/8.0G" in wide  # 75%: 8 of 10 cells
-    assert "ctx ━━────── 1.6k/8k" in wide
-    assert wide.endswith("⌂ local  21:04")
-    narrow = plain(render(snap, 80))
-    assert "VRAM 6.0/8.0G" in narrow and "━" not in narrow
+    assert plain(render(snap, 140)) == "● qwen3:8b · 1.6k/8k ctx · 6.0/8.0G VRAM · local"
+    assert plain(render(snap, 80)) == "● qwen3:8b · 1.6k/8k ctx · local"  # no room for VRAM
 
 
-def test_meter_colours() -> None:
-    assert meter(0.5, 4).startswith("[$success]━━[/]")
-    assert meter(0.8, 4).startswith("[$warning]")
-    assert meter(0.95, 4).startswith("[$error]")
-    assert meter(2, 4) == "[$error]━━━━[/][$text-muted][/]"  # clamped
+def test_colour_only_when_it_needs_attention() -> None:
+    assert [level(f) for f in (0.5, 0.8, 0.95)] == ["", "$warning", "$error"]
+    calm = render(Snapshot(model="m", model_state="idle", context=(1000, 8192)), 140)
+    assert "$warning" not in calm and "$error" not in calm
 
 
 def test_full_context_says_what_to_do() -> None:
     snap = Snapshot(context=(7800, 8192))
-    assert "Ctrl+L" in plain(render(snap, 140))
-    assert "Ctrl+L" not in plain(render(Snapshot(context=(2000, 8192)), 140))
+    assert "/clear" in plain(render(snap, 140))
+    assert "/clear" not in plain(render(Snapshot(context=(2000, 8192)), 140))
 
 
 def test_senses_are_red_with_the_sign() -> None:
     markup = render(Snapshot(senses={"gestures", "mic"}, sign="peace"), 140)
-    assert "[b $error]● ✋ gestures 🎤 mic[/] [b]✌ peace[/]" in markup
+    assert markup.startswith("[b $error]● ✋ gestures 🎤 mic ✌ peace[/]")
 
 
 def test_odd_names_cannot_break_the_markup() -> None:
@@ -85,10 +83,14 @@ def test_greeting(hour: int, words: str) -> None:
     assert greeting(datetime(2026, 1, 1, hour)).startswith(words)
 
 
-def test_welcome_shows_suggestions() -> None:
-    text = plain(welcome_text(datetime(2026, 1, 1, 9)))
-    assert text.startswith("Good morning, Lex.")
-    assert "› install prism launcher" in text
+def test_welcome_tips_and_recent_chats() -> None:
+    assert "› install prism launcher" in plain(tips_text())
+    chat = ChatSummary(7, "install htop", datetime(2026, 1, 1, 9), datetime(2026, 1, 1, 21, 4), 2)
+    recent = recent_text([chat], now=datetime(2026, 1, 1, 22))
+    assert "screen.open_chat(7)" in recent  # a click carries it on
+    assert plain(recent).splitlines() == ["Recent chats", "› install htop 21:04",
+                                          "/resume for more"]  # fmt: skip
+    assert "None yet" in plain(recent_text([]))
 
 
 @pytest.mark.parametrize(("size", "shown"), [((120, 40), True), ((80, 24), False)])
@@ -102,8 +104,33 @@ async def test_welcome_logo_only_when_there_is_room(
 
 
 def test_turn_summary() -> None:
-    assert turn_summary(2.61, 74, 2.0) == "2.6s · 74 tokens · 37 tok/s"
+    assert turn_summary(2.61, 74, 2.0) == "2.6s · 37 tok/s"
     assert turn_summary(0.4, 0, 0) == "0.4s"
+
+
+def test_spinner_line() -> None:
+    line = plain(spinner_line(4, "Tinkering", 12.3, 340))
+    assert line == "✻ Tinkering… (12s · ↓ 340 tokens · esc to interrupt)"
+    assert plain(spinner_line(0, "Running [x]", 0, 0)) == "· Running [x]… (0s · esc to interrupt)"
+
+
+# Slash commands ----------------------------------------------------------------
+
+
+def test_slash_menu_matches_as_you_type() -> None:
+    assert [c.name for c in matching("/")][:3] == ["help", "clear", "resume"]
+    assert [c.name for c in matching("/cl")] == ["clear"]
+    assert [c.name for c in matching("/s")] == ["settings", "signs", "resume"]  # starts, contains
+
+
+@pytest.mark.parametrize(
+    ("message", "runs"),
+    [("/clear", "clear"), ("/model qwen", "model"), ("/CLEAR", "clear"),
+     ("/etc/fstab looks wrong", None), ("/", None), ("hello /clear", None)],
+)  # fmt: skip
+def test_only_known_commands_run(message: str, runs: str | None) -> None:
+    command = command_for(message)
+    assert (command.name if command else None) == runs
 
 
 # Hand view and highlighting --------------------------------------------------
@@ -159,7 +186,7 @@ async def send(pilot: Any, text: str) -> None:
     for _ in range(50):
         await pilot.pause(0.05)
         screen = pilot.app.screen
-        if isinstance(screen, ChatScreen) and not screen.replying and screen.query(".reply-meta"):
+        if isinstance(screen, ChatScreen) and not screen.replying and screen.last_turn:
             return
 
 
@@ -170,10 +197,11 @@ async def test_chat_round_trip(app: CoreApp) -> None:
         assert isinstance(chat, ChatScreen) and chat.query(Welcome)
         await send(pilot, "hi")
         assert not chat.query(Welcome)  # gone once the chat starts
-        texts = [str(w.render()) for w in chat.query(".who")]
-        assert re.match(r"you · \d\d:\d\d", texts[0]) and texts[1] == "◆ CORE"
-        assert "3 tokens · 30 tok/s" in str(chat.query_one(".reply-meta").render())
-        used, total = chat.query_one(StatusBar).snap.context
+        assert str(chat.query_one(".user .said").render()) == "hi"
+        assert str(chat.query_one(".reply .bullet").render()) == "⏺"
+        assert re.fullmatch(r"\d+\.\ds · 30 tok/s", chat.last_turn)
+        assert "last reply" in chat.status.hint
+        used, total = chat.query_one(StatusLine).snap.context
         assert used >= 903 and total == app.config.model.num_ctx
 
 
@@ -203,10 +231,10 @@ async def test_new_chat_forgets_everything(app: CoreApp) -> None:
         await pilot.press("ctrl+l")
         await pilot.pause(0.1)
         assert len(app.conversation.history) == 1  # only the system prompt
-        assert chat.query(Welcome) and not chat.query(".who")
+        assert chat.query(Welcome) and not chat.query(".user")
 
 
-async def test_footer_only_offers_stop_while_busy(app: CoreApp) -> None:
+async def test_keys_only_fire_when_they_do_something(app: CoreApp) -> None:
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.press("escape")
         chat = app.screen
@@ -256,3 +284,47 @@ async def test_desktop_nudge_only_when_lex_looked_away(
             await asking.wait()
             assert asking.result is False
         assert sent == ["Needs your y/n to run: sudo dnf install -y htop"]  # only the 2nd
+
+
+async def test_slash_commands_run_instead_of_going_to_the_model(app: CoreApp) -> None:
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("escape")
+        chat = app.screen
+        assert isinstance(chat, ChatScreen)
+        await pilot.press("/", "r", "e")
+        assert chat.menu.display and chat.menu.chosen is not None
+        assert chat.menu.chosen.name == "resume"
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+        assert chat.tab == "history" and len(app.conversation.history) == 1  # nothing sent
+        await pilot.press("escape")
+        assert chat.tab == "chat"
+
+
+async def test_question_mark_opens_the_shortcuts(app: CoreApp) -> None:
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("escape", "question_mark")
+        await pilot.pause(0.1)
+        assert type(app.screen).__name__ == "HelpScreen"
+        await pilot.press("escape")
+        chat = app.screen
+        assert isinstance(chat, ChatScreen) and chat.prompt.value == ""
+
+
+async def test_a_yes_typed_too_soon_does_not_approve(app: CoreApp) -> None:
+    from core.agent.risk import Assessment, Tier
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("escape")
+        chat = app.screen
+        assert isinstance(chat, ChatScreen)
+        confirm = Assessment(Tier.CONFIRM, "runs as root (sudo)")
+        asking = chat.run_worker(chat.approve("sudo dnf install -y htop", confirm, "", ""))
+        await pilot.pause(0.05)
+        await pilot.press("y", "enter")  # already typing when it popped up
+        await pilot.pause(0.1)
+        assert asking.is_running  # still asking
+        await pilot.pause(0.5)
+        await pilot.press("enter")  # now it's a real answer (Yes is highlighted)
+        await asking.wait()
+        assert asking.result is True

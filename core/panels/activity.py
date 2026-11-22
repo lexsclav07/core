@@ -1,4 +1,4 @@
-"""The Activity tab (F4): everything CORE ran, asked about or refused.
+"""The Activity view (/activity or F4): everything CORE ran, asked about or refused.
 
 It reads the audit log (~/.local/share/core/audit.log, see agent/audit.py),
 newest first, and reads it again whenever the file changes while the tab is
