@@ -10,7 +10,7 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from textual import events, work
 from textual.app import App, ComposeResult, SystemCommand
@@ -69,12 +69,23 @@ class SplashScreen(Screen[None]):
             self.dismiss()
 
 
-# GNOME's (libadwaita's) green, yellow and red for each mode. A Textual theme
-# given only `primary` makes these from it too: a blue accent would make the
-# red "a sense is on" dot blue, which is exactly what must stand out.
-STATE_COLOURS = {  # success, warning, error
-    True: ("#57e389", "#f6d32d", "#ff7b63"),  # dark
-    False: ("#1b8553", "#9c6e03", "#c01c28"),  # light
+class Palette(NamedTuple):
+    background: str
+    surface: str  # input box, dialogs
+    panel: str  # selected rows, code
+    foreground: str
+    # Set explicitly: a Textual theme given only `primary` makes these from it
+    # too, and a green accent would make the red "a sense is on" dot green.
+    success: str
+    warning: str
+    error: str
+
+
+# CORE's look: black (or white) with one accent colour, like Claude Code's
+# terminal UI. Green/yellow/red are libadwaita's, so they match GNOME.
+PALETTES = {
+    True: Palette("#000000", "#0d0d0d", "#161616", "#e6e6e6", "#57e389", "#f6d32d", "#ff7b63"),
+    False: Palette("#ffffff", "#f6f6f6", "#ebebeb", "#1d1d1d", "#1b8553", "#9c6e03", "#c01c28"),
 }
 
 
@@ -87,7 +98,7 @@ class CoreApp(App[None]):
         # No config: read it (lets `textual run --dev core.app:CoreApp` work).
         self.config = config = config or load_config()
         self.active_senses: set[str] = set()  # shown in red in the status bar
-        self.store = ChatStore()  # saved chats, for the History tab
+        self.store = ChatStore()  # saved chats, for /resume
         self.client = OllamaClient(config.ollama.url)
         self.conversation = Conversation(
             self.client,
@@ -108,18 +119,22 @@ class CoreApp(App[None]):
         self.push_screen(SplashScreen())
 
     def apply_theme(self) -> None:
-        """Colours from [ui] accent and mode (GNOME's when they're empty/"auto")."""
-        accent = resolve_accent(self.config.ui.accent)
+        """Colours from [ui] accent and mode: black and light green unless changed."""
         dark = resolve_dark(self.config.ui.mode)
-        success, warning, error = STATE_COLOURS[dark]
+        accent = resolve_accent(self.config.ui.accent, dark)
+        p = PALETTES[dark]
         # A new name for each look: setting the same theme name again wouldn't redraw.
         name = f"core-{'dark' if dark else 'light'}-{accent.lstrip('#')}"
-        theme = Theme(name, accent, success=success, warning=warning, error=error, dark=dark)
+        theme = Theme(
+            name, primary=accent, secondary=accent, accent=accent, dark=dark,
+            background=p.background, surface=p.surface, panel=p.panel,
+            foreground=p.foreground, success=p.success, warning=p.warning, error=p.error,
+        )  # fmt: skip
         self.register_theme(theme)
         self.theme = name
 
     def change_setting(self, section: str, key: str, value: str | bool) -> None:
-        """Save one setting to config.toml and apply it now (the Settings tab)."""
+        """Save one setting to config.toml and apply it now (/settings)."""
         save_setting(section, key, value)
         part = dataclasses.replace(getattr(self.config, section), **{key: value})
         self.config = dataclasses.replace(self.config, **{section: part})
