@@ -27,50 +27,64 @@ uv run core
 
 The first run writes `~/.config/core/config.toml` with the defaults.
 
+It looks and works like Claude Code: black with a light green accent, your
+messages as `> …`, CORE's replies after a `⏺`, and each command it runs as
+`⏺ Bash(…)` with its output under `⎿`. While it works, a line above the input
+says so: `✻ Thinking… (12s · ↓ 340 tokens · esc to interrupt)`.
+
 | Key | |
 |---|---|
-| Enter | send (click a suggestion on the welcome panel to fill the box first) |
+| Enter | send (click a tip on the welcome box to fill the input first) |
+| / | the command menu: ↑/↓ to pick, Enter to run |
+| ? or F1 | shortcuts |
 | ↑ / ↓ | bring back earlier messages |
-| Ctrl+C / Esc | stop the running command, then the reply (Esc on another tab: back to the chat) |
+| Esc | interrupt CORE, close the / menu, or go back to the chat |
+| Ctrl+C | stop the running command, then the reply |
 | Ctrl+O | expand the latest command's output (or click it) |
 | Ctrl+T | push-to-talk |
 | Ctrl+G | gesture mode |
-| Ctrl+L | new chat: CORE forgets this one and frees its memory |
-| F2 F3 F4 F5 | the Chat, History, Activity and Settings tabs (or click them) |
-| F1 | help |
+| Ctrl+L | new chat (same as /clear) |
 | Ctrl+P | every command, plus Textual's theme picker |
 | Ctrl+Q | quit |
 
-### Tabs
+### Commands
 
-- **Chat (F2)**: talking to CORE.
-- **History (F3)**: every chat, saved in `~/.local/share/core/history.db` after
-  CORE's first reply. Type to search what was said, Enter to carry a chat on
-  (CORE remembers it all again), Delete to remove one. Saving stays on this
-  PC; `save = false` under `[history]` turns it off.
-- **Activity (F4)**: the audit log as a table: every command CORE ran, asked
-  about or refused, newest first, with a filter box and the full details of the
-  highlighted row.
-- **Settings (F5)**: pick the model from the ones you've pulled, thinking on or
-  off, light/dark and the accent colour. Changes apply straight away and are
-  saved to `config.toml` with its comments kept. Gesture macros stay in the file
-  on purpose, so a click can never add one.
+| | |
+|---|---|
+| `/clear` | new chat; CORE forgets this one and frees its memory (it stays in /resume) |
+| `/resume` (F3) | every saved chat: type to search what was said, Enter to carry one on (CORE remembers it all again), Delete to remove one |
+| `/activity` (F4) | the audit log as a table: everything CORE ran, asked about or refused, with a filter box and the full details of the highlighted row |
+| `/settings` (F5) | the model, thinking, light/dark and the accent colour, saved to `config.toml` with its comments kept |
+| `/model` | /settings with the model list open |
+| `/talk`, `/signs` | push-to-talk, gesture mode |
+| `/help`, `/quit` | |
 
-The footer only shows the keys that do something right now. While a command is
-running, whatever you type goes to that command (e.g. to answer `[y/N]`).
+Chats are saved in `~/.local/share/core/history.db` after each reply, on this
+PC only; `save = false` under `[history]` turns that off. Gesture macros stay
+hand-edited in `config.toml` on purpose, so a click in /settings can never add
+one.
 
-The bar along the top shows the model (green dot: fully on the GPU; yellow: part
-of it spilled into system RAM, so it's slower), VRAM use, and **ctx**: how much
-of the chat CORE can still keep in mind. When ctx turns red, the oldest messages
-are falling out of its memory, so press Ctrl+L. Red dots mean a sense is on.
-Under each reply is how long it took and how fast the model wrote (tok/s).
+Anything else starting with `/` (say "/etc/fstab looks wrong") goes to CORE as
+a normal message. While a command is running, whatever you type goes to that
+command (e.g. to answer `[y/N]`).
+
+When CORE wants to run something that changes the PC, a box at the bottom
+shows the command, what it does, why it's asking and how to undo it, with
+`1. Yes` / `2. No`. A Yes only counts after half a second, so a key you were
+already typing can't approve it by accident.
+
+The line under the input shows hints on the left and, on the right, the model
+(green dot: fully on the GPU; yellow: part of it spilled into system RAM, so
+it's slower), **ctx** (how much of the chat CORE can still keep in mind;
+yellow, then red with a /clear hint, as it fills) and VRAM. Red means a sense
+is on. After a reply it also says how long it took and how fast the model wrote.
 
 If you're in another window, CORE sends a GNOME notification when it needs a
 y/n, or when a reply that took over 10 seconds is ready.
 
 ### The logo
 
-`docs/logo.png` is the logo. The splash screen and welcome panel show it as
+`docs/logo.png` is the logo. The splash screen and welcome box show it as
 block characters, made from the image (40 and 20 characters wide):
 
 ```sh
@@ -84,10 +98,12 @@ animation.
 
 ### Ricing the TUI
 
-The colours follow GNOME: your accent colour (Settings → Appearance) and its
-light/dark style. Set `accent = "#hex"` or `mode = "dark"`/`"light"` under `[ui]`
-to override them. Everything else about the look is in `core/theme.tcss`
-(Textual CSS). To see your edits live:
+CORE is black with a light green accent (`#9be9a8`, the lightest square of a
+GitHub contribution graph). In /settings, or under `[ui]` in `config.toml`:
+`accent = "gnome"` follows your GNOME accent colour, `accent = "#hex"` picks your
+own, and `mode = "light"` or `"auto"` (GNOME's style) changes the black.
+Everything else about the look is in `core/theme.tcss` (Textual CSS). To see
+your edits live:
 
 ```sh
 uv run textual run --dev core.app:CoreApp
