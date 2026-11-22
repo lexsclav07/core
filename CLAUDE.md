@@ -38,14 +38,16 @@ Goal for the GPU: use as much of the 3060 as possible for the main model. Pick t
 ```
 core/
   app.py            # Textual app: logo splash, theme, command palette
-  chat.py           # main screen: tabs (F2–F5), chat, input (↑/↓ history), footer, AgentUI
+  chat.py           # main screen (like Claude Code): chat, input, / menu, views, AgentUI
+  commands.py       # slash commands and the menu under the input
+  spinner.py        # "✻ Thinking… (12s · ↓ 340 tokens · esc to interrupt)" while CORE works
   history.py        # saved chats in SQLite (history.db), replaying one on screen
-  panels/           # the other tabs: history.py (F3), activity.py (F4), settings.py (F5)
-  status.py         # top status bar: model, VRAM, context gauge, senses, clock
-  welcome.py        # welcome panel (empty chat) and the F1 help screen
+  panels/           # the other views: history.py (/resume), activity.py, settings.py
+  status.py         # the line under the input: hints, model, context, VRAM, senses
+  welcome.py        # welcome box (empty chat) and the shortcuts screen (? or F1)
   handview.py       # gesture mode: live braille drawing of the tracked hand
-  theme.tcss        # the look (Textual CSS); colours come from the GNOME accent
-  widgets.py        # approval dialog, masked password field, inline command blocks
+  theme.tcss        # the look (Textual CSS): black with a light green accent
+  widgets.py        # y/n box, masked password field, command blocks (⏺ Bash(…) / ⎿ …)
   agent/
     loop.py         # tool-calling loop against Ollama's /api/chat
     prompts.py      # system prompt, tool descriptions
@@ -137,8 +139,8 @@ All credentials live in GNOME Keyring. Each integration can be switched on or of
 
 - **Logo: Lex's design.** The letters C O / R E as chunky blocks in a 2×2 square, in the style of Supercell's logo. The image is `docs/logo.png` (shown at the top of the README). The terminal versions are block-character text made from it by `core/logo/from_image.py`: `core/logo/logo.txt` (splash, 40 wide) and `core/logo/small.txt` (welcome panel, 20 wide, hidden in windows under 32 rows). Regenerate them from the image rather than hand-editing; a test checks `logo.txt` still matches the image.
 - Don't invent mascot art. The splash reads any multi-line text file (and optional `frame_*.txt` frames for animation) from `core/logo/`.
-- Colours come from a theme in config. Default to one accent colour that matches the GNOME accent if it can be read through `gsettings`.
-- TUI layout: a status bar along the top (model loaded, VRAM use, context used, active senses, local or remote session, clock), then four tabs: Chat (F2; collapsible command blocks and the input box), History (F3; saved chats to search, reopen and carry on), Activity (F4; the audit log as a table) and Settings (F5; model, thinking, light/dark, accent, saved to config.toml with comments kept, never gesture macros). A footer shows only the keys that work right now. Focus must move into a tab when it opens: Textual's TabbedContent switches to whichever tab holds the focused widget. Confirmation modals for the confirm tier. Status colours (green, yellow, red) are libadwaita's, set explicitly: a Textual theme given only an accent derives them from it, which would turn the red "sense is on" dot into the accent colour.
+- Colours: black with one light green accent (`#9be9a8`), like Claude Code's look in CORE's own colours. `[ui] accent` can be `"gnome"` (the GNOME accent via `gsettings`) or a hex colour, and `[ui] mode` can be `"light"` or `"auto"`; light mode uses a deeper green so it stays readable.
+- TUI layout, modelled on Claude Code: no bars or tabs on screen. A welcome box (logo, tips, recent chats) until the first message; Lex's messages as `> …`, replies after `⏺`, commands as `⏺ Bash(…)` with output under `⎿`; a spinner line above the input while CORE works; a rounded input box where `/` opens a command menu and `?` the shortcuts; and one quiet line under it (hints left; model, context, VRAM, senses right). Resume (/resume, F3), Activity (/activity, F4) and Settings (/settings, F5; model, thinking, light/dark, accent, saved to config.toml with comments kept, never gesture macros) are full views that Esc leaves; underneath they are TabbedContent panes with the tab bar hidden, and focus must move into a view when it opens, as TabbedContent switches to whichever pane holds the focused widget. Approvals and other questions are a box at the bottom with numbered choices; "yes" ignores keys for half a second after it appears so a keystroke already in flight can't approve a command. Status colours (green, yellow, red) are libadwaita's, set explicitly: a Textual theme given only an accent derives them from it, which would turn the red "sense is on" dot into the accent colour.
 
 ## Example behaviour to aim for
 

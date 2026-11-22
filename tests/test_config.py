@@ -27,9 +27,11 @@ def test_configured_accent_wins() -> None:
     assert resolve_accent("#ff00ff") == "#ff00ff"
 
 
-def test_accent_falls_back_without_gsettings(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setenv("PATH", "")
-    assert resolve_accent("") == FALLBACK_ACCENT
+def test_accent_is_core_green_unless_asked(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    assert resolve_accent("") == "#9be9a8"
+    assert resolve_accent("", dark=False) == "#1a7f37"  # readable on white
+    monkeypatch.setenv("PATH", "")  # no gsettings: CORE can't ask GNOME
+    assert resolve_accent("gnome") == FALLBACK_ACCENT
 
 
 def test_light_or_dark(monkeypatch) -> None:  # type: ignore[no-untyped-def]

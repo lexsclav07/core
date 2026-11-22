@@ -1,4 +1,4 @@
-"""The History tab (F3): saved chats, newest first. Enter opens one.
+"""The Resume view (/resume or F3): saved chats, newest first. Enter opens one.
 
 Opening a chat puts it back on the Chat tab and CORE carries on from where
 it was, with everything it knew then (see history.py and Conversation.load).

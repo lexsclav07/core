@@ -35,13 +35,14 @@ url = "http://127.0.0.1:11434"
 
 [ui]
 terminal = "ptyxis"
-# Leave empty to follow the GNOME accent colour.
+# Accent colour: empty for CORE's light green, "gnome" for your GNOME accent,
+# or any "#rrggbb".
 accent = ""
-# "auto" follows GNOME's light/dark style (Settings → Appearance), or "dark" / "light".
-mode = "auto"
+# "dark" (CORE's black), "light", or "auto" to follow GNOME's style (Settings → Appearance).
+mode = "dark"
 
 [history]
-# Save chats to ~/.local/share/core/history.db so the History tab (F3) can
+# Save chats to ~/.local/share/core/history.db so /resume (F3) can
 # reopen them. Only on this PC; set to false to keep nothing.
 save = true
 
@@ -85,7 +86,10 @@ GNOME_ACCENTS = {
     "purple": "#9141ac",
     "slate": "#6f8396",
 }
-FALLBACK_ACCENT = GNOME_ACCENTS["blue"]
+FALLBACK_ACCENT = GNOME_ACCENTS["blue"]  # "gnome" when GNOME can't be asked
+# CORE's own colour: the lightest green of a GitHub contribution graph. On a
+# light background it's too pale to read, so light mode uses a deeper green.
+CORE_GREEN = {True: "#9be9a8", False: "#1a7f37"}  # dark, light
 
 
 @dataclass(frozen=True)
@@ -106,7 +110,7 @@ class OllamaConfig:
 class UIConfig:
     terminal: str = "ptyxis"
     accent: str = ""
-    mode: str = "auto"
+    mode: str = "dark"
 
 
 @dataclass(frozen=True)
@@ -172,14 +176,14 @@ def load_config(path: Path | None = None) -> Config:
 def save_setting(
     section: str, key: str, value: str | bool | int | float, path: Path | None = None
 ) -> None:
-    """Change one setting in config.toml (for the Settings tab), keeping comments.
+    """Change one setting in config.toml (for /settings), keeping comments.
 
     The edit is checked by reading the file back: if the new value doesn't come
     out exactly, or anything else changed, nothing is written (ValueError).
     Only simple top-level sections like [model] and [ui], not [gestures.macros].
     """
     if not re.fullmatch(r"\w+", section) or not re.fullmatch(r"\w+", key):
-        raise ValueError(f"can't save [{section}] {key} from the Settings tab")
+        raise ValueError(f"can't save [{section}] {key} from Settings")
     path = path or config_path()
     if not path.exists():
         load_config(path)  # writes the default file first
@@ -225,11 +229,13 @@ def _section[T](cls: type[T], values: dict[str, object]) -> T:
     return cls(**{k: v for k, v in values.items() if k in known})
 
 
-def resolve_accent(configured: str) -> str:
-    """Return the accent colour: the config value, else GNOME's, else blue."""
-    if configured:
-        return configured
-    return GNOME_ACCENTS.get(_gnome_setting("accent-color"), FALLBACK_ACCENT)
+def resolve_accent(configured: str, dark: bool = True) -> str:
+    """The accent colour: CORE's green, GNOME's ("gnome"), or the hex given."""
+    if not configured:
+        return CORE_GREEN[dark]
+    if configured == "gnome":
+        return GNOME_ACCENTS.get(_gnome_setting("accent-color"), FALLBACK_ACCENT)
+    return configured
 
 
 def resolve_dark(mode: str) -> bool:

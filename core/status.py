@@ -1,10 +1,12 @@
-"""The status bar along the top: model · VRAM · context · senses · session · clock.
+"""The quiet line under the input, like Claude Code's:
 
-    ◆ CORE  ● qwen3:8b  VRAM ━━━━━━──── 6.1/8.0G  ctx ━━────── 1.6k/8k  senses off  ⌂ local  21:04
+    ? for shortcuts                       ● qwen3:8b · 1.6k/8k ctx · 6.1/8.0G VRAM · local
 
-The text is built by render() from a plain Snapshot, so it can be tested
-without a running app. On a narrow terminal (an SSH window on the laptop,
-say) the meters are dropped and only the numbers stay.
+Hints on the left (set by the chat screen: what keys do right now), and on
+the right the model, how full its context window is, VRAM, and anything
+that needs attention: a sense that's on (red), a model spilling onto the CPU
+or a nearly full context (yellow, then red). It's built by render() from a
+plain Snapshot, so it can be tested without a running app.
 """
 
 from __future__ import annotations
@@ -12,12 +14,11 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
 
 from core.tools.signs import label
 
 SENSE_ICONS = {"screen": "💻", "webcam": "📷", "mic": "🎤", "gestures": "✋"}
-WIDE = 110  # columns needed for the meters
+WIDE = 100  # columns needed to show VRAM as well
 
 
 @dataclass
@@ -43,27 +44,16 @@ def escape(text: str) -> str:
     return text.replace("[", "\\[")
 
 
-def render(s: Snapshot, width: int, now: datetime | None = None) -> str:
-    """Textual markup for the whole bar."""
-    wide = width >= WIDE
+def render(s: Snapshot, width: int) -> str:
+    """Textual markup for the right-hand side of the line."""
     parts = [
-        "[b reverse $primary] ◆ CORE [/]",
-        _model(s),
-        _vram(s.vram_mb, wide),
-        _context(*s.context, wide),
         _senses(s.senses, s.sign),
-        "[$warning]⇄ remote[/]" if s.session == "remote" else "[$text-muted]⌂ local[/]",
-        f"[$text-muted]{(now or datetime.now()):%H:%M}[/]",
+        _model(s),
+        _context(*s.context),
+        _vram(s.vram_mb) if width >= WIDE else "",
+        "[$warning]remote[/]" if s.session == "remote" else "local",
     ]
-    return "  ".join(p for p in parts if p)
-
-
-def meter(fraction: float, cells: int) -> str:
-    """A bar like ━━━━━─────, coloured by how full it is."""
-    fraction = min(max(fraction, 0.0), 1.0)
-    filled = round(fraction * cells)
-    colour = "$success" if fraction < 0.75 else "$warning" if fraction < 0.9 else "$error"
-    return f"[{colour}]{'━' * filled}[/][$text-muted]{'─' * (cells - filled)}[/]"
+    return " [$text-muted]·[/] ".join(p for p in parts if p)
 
 
 def short(tokens: int) -> str:
@@ -73,39 +63,47 @@ def short(tokens: int) -> str:
     return f"{tokens / 1024:.1f}k".replace(".0k", "k")
 
 
+def level(fraction: float) -> str:
+    """No colour while there's room; yellow, then red, as it fills."""
+    return "" if fraction < 0.75 else "$warning" if fraction < 0.9 else "$error"
+
+
+def _paint(text: str, colour: str) -> str:
+    return f"[{colour}]{text}[/]" if colour else text
+
+
 def _model(s: Snapshot) -> str:
     name = escape(s.model)
     return {
         "gpu": f"[$success]●[/] {name}",
-        "split": f"[$warning]●[/] {name} [$warning]{s.gpu_percent}% GPU[/]",
-        "idle": f"[$text-muted]○ {name} idle[/]",
-        "down": "[$error]● Ollama down[/]",
-    }.get(s.model_state, f"[$text-muted]○ {name}[/]")
+        # Part of the model spilled into system RAM: works, but much slower.
+        "split": f"[$warning]● {name} {s.gpu_percent}% GPU[/]",
+        "idle": f"○ {name}",
+        "down": "[$error]● Ollama isn't running[/]",
+    }.get(s.model_state, f"○ {name}")
 
 
-def _vram(vram: tuple[int, int] | None, wide: bool) -> str:
-    if vram is None:
-        return "[$text-muted]VRAM ?[/]"
-    used, total = vram
-    numbers = f"{used / 1024:.1f}/{total / 1024:.1f}G"
-    return f"VRAM {meter(used / total, 10)} {numbers}" if wide else f"VRAM {numbers}"
-
-
-def _context(used: int, total: int, wide: bool) -> str:
+def _context(used: int, total: int) -> str:
     if not total:
         return ""
-    numbers = f"{short(used)}/{short(total)}"
-    # Past the window, Ollama drops the oldest messages: Ctrl+L starts afresh.
-    hint = " [$error]Ctrl+L[/]" if used >= total * 0.9 else ""
-    return f"ctx {meter(used / total, 8)} {numbers}{hint}" if wide else f"ctx {numbers}{hint}"
+    text = f"{short(used)}/{short(total)} ctx"
+    # Past the window, Ollama drops the oldest messages: /clear starts afresh.
+    return _paint(text + (" · /clear" if used >= total * 0.9 else ""), level(used / total))
+
+
+def _vram(vram: tuple[int, int] | None) -> str:
+    if vram is None:
+        return ""
+    used, total = vram
+    return _paint(f"{used / 1024:.1f}/{total / 1024:.1f}G VRAM", level(used / total))
 
 
 def _senses(senses: set[str], sign: str | None) -> str:
     if not senses:
-        return "[$text-muted]senses off[/]"
+        return ""
     on = " ".join(f"{SENSE_ICONS.get(n, '●')} {n}" for n in sorted(senses))
-    seen = f" [b]{escape(label(sign))}[/]" if sign and "gestures" in senses else ""
-    return f"[b $error]● {on}[/]{seen}"
+    seen = f" {escape(label(sign))}" if sign and "gestures" in senses else ""
+    return f"[b $error]● {on}{seen}[/]"
 
 
 async def vram_usage() -> tuple[int, int] | None:

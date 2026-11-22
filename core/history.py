@@ -1,4 +1,4 @@
-"""Saved chats, so the History tab (F3) can bring one back.
+"""Saved chats, so /resume (F3) can bring one back.
 
 One SQLite file, ~/.local/share/core/history.db, with one row per chat: a
 title (the first thing Lex asked), when it started and was last used, and

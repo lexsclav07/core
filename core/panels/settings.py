@@ -1,4 +1,4 @@
-"""The Settings tab (F5): change the model, thinking and the look without
+"""The Settings view (/settings or F5): change the model, thinking and the look without
 editing config.toml by hand.
 
 A change applies at once and is saved to config.toml (config.save_setting,
@@ -26,13 +26,12 @@ from core.tools.signs import label
 if TYPE_CHECKING:
     from core.app import CoreApp
 
-MODES = [("Follow GNOME", "auto"), ("Dark", "dark"), ("Light", "light")]
+MODES = [("Dark (black)", "dark"), ("Light", "light"), ("Follow GNOME", "auto")]
 
 
 def accent_options(current: str) -> list[tuple[str, str]]:
-    options = [("Follow GNOME", "")] + [
-        (name.title(), hex_) for name, hex_ in GNOME_ACCENTS.items()
-    ]
+    options = [("CORE green", ""), ("Follow GNOME", "gnome")]
+    options += [(name.title(), hex_) for name, hex_ in GNOME_ACCENTS.items()]
     if current and current not in dict(options).values():
         options.append((f"Custom ({current})", current))  # set by hand in config.toml
     return options
@@ -77,10 +76,10 @@ class SettingsPanel(VerticalScroll):
 
         yield Static("Privacy", classes="settings-heading")
         with Horizontal(classes="setting"):
-            yield Label("Save chats for History")
+            yield Label("Save chats for /resume")
             yield Switch(value=config.history.save, id="set-history")
         yield Static("Kept only on this PC. Turning it off doesn't delete saved chats; "
-                     "do that in the History tab.", classes="note")  # fmt: skip
+                     "do that in /resume.", classes="note")  # fmt: skip
 
         yield Static("Everything else", classes="settings-heading")
         yield Static(self._other(), id="settings-other")
